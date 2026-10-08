@@ -91,6 +91,10 @@ def save_checkpoint(run_dir, step, policy, opt=None, sched=None, extra=None):
               "rng_torch": torch.get_rng_state(), "rng_np": np.random.get_state(), **(extra or {})}
         torch.save(st, os.path.join(d, "train_state.pt.tmp"))
         os.replace(os.path.join(d, "train_state.pt.tmp"), os.path.join(d, "train_state.pt"))
+        # optimizer state is only needed to resume: keep it for the newest checkpoint only (it's 2x the weights)
+        for old_step, old in list_checkpoints(run_dir):
+            if old_step < step and os.path.exists(os.path.join(old, "train_state.pt")):
+                os.remove(os.path.join(old, "train_state.pt"))
     return d
 
 
