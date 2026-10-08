@@ -82,6 +82,8 @@ def main():
     p.add_argument("--human_tasks", default="all", help="tasks to use human demos for: seen | all | comma list")
     p.add_argument("--heldout", default=DEFAULT_SPLIT, help="object | combo | object:<cube> | zone:<zone> | task list")
     p.add_argument("--include_failed", type=int, default=1, help="keep failed human replays (1) or drop them (0)")
+    p.add_argument("--ambient_t_min", type=int, default=0,
+                   help="ambient loss: samples with sigma_n != 0 (human/synthetic) draw t from [t_min, T); 0 = off")
     p.add_argument("--sim_per_task", type=int, default=20)
     p.add_argument("--device", default="auto")
     p.add_argument("--out", default="checkpoints")
@@ -100,8 +102,8 @@ def main():
     if "sim" in sources:
         eps += load_episodes(a.data, {"sources": ["sim"], "tasks": sim_task_list(a.sim_tasks, heldout),
                                       "max_per_task": {"sim": a.sim_per_task}})
-    if "human" in sources:
-        eps += load_episodes(a.data, {"sources": ["human"], "tasks": sim_task_list(a.human_tasks, heldout),
+    for noisy in [s for s in ("human", "synthetic") if s in sources]:
+        eps += load_episodes(a.data, {"sources": [noisy], "tasks": sim_task_list(a.human_tasks, heldout),
                                       "include_failed": bool(a.include_failed)})
     if not eps:
         sys.exit("no episodes matched the filters")
@@ -133,7 +135,10 @@ def main():
         idx = torch.randint(0, N, (cfg.batch,), device=dev)
         batch = {k: v[idx] for k, v in arr.items()}
         cond = pol.encode(batch)
-        loss = diff.loss(pol, batch["action"], cond)  # Phase 2: t_min from batch["sigma_n"]
+        t_min = None
+        if a.ambient_t_min > 0:                       # corrupted samples only supervise the noisy end
+            t_min = torch.where(batch["sigma_n"] == 0, 0, a.ambient_t_min).long()
+        loss = diff.loss(pol, batch["action"], cond, t_min=t_min)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(pol.parameters(), 1.0)
