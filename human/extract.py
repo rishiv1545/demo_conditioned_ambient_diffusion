@@ -14,6 +14,7 @@ import numpy as np
 from scipy.signal import savgol_filter
 
 from human.calibrate import camera_ground_xy, to_table, warp_topdown
+from human.objects import color_mask, largest_blob, session_specs
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/"
              "hand_landmarker.task")
@@ -22,15 +23,6 @@ MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 WRIST, THUMB_TIP, INDEX_MCP, INDEX_TIP, MIDDLE_MCP, PINKY_MCP = 0, 4, 5, 8, 9, 17
 
-# HSV ranges (OpenCV: H in [0, 180)). Red wraps around 0.
-COLORS = {
-    "red": [((0, 120, 70), (8, 255, 255)), ((170, 120, 70), (180, 255, 255))],
-    "orange": [((9, 140, 120), (20, 255, 255))],
-    "yellow": [((21, 100, 120), (35, 255, 255))],
-    "green": [((40, 80, 50), (85, 255, 255))],
-    "blue": [((95, 120, 50), (125, 255, 255))],
-    "purple": [((126, 50, 40), (165, 255, 255))],
-}
 
 
 # ---------------------------------------------------------------------------- hand tracking
@@ -161,30 +153,23 @@ def min_duration(binary, n):
 
 
 # ---------------------------------------------------------------------------- objects
-def detect_objects(frame, H, cube_z=0.02, camera_h=None, cam_xy=None, ppm=1000):
-    """Centers (table m) of the colored cubes and zones in a frame, via HSV thresholding of the top-down warp.
-    Returns {color: xy or None}. Cube centroids are parallax-corrected for their height."""
+def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000):
+    """Centers (table m) of the 3 objects and 3 zones via HSV thresholding of the top-down warp, using the
+    per-session color specs (human.objects.session_specs). Returns {name: xy or None}. Object centroids are
+    parallax-corrected to their mid-height (the blob covers the object's top and visible sides)."""
     top, A = warp_topdown(frame, H, ppm=ppm)
     hsv = cv2.cvtColor(cv2.GaussianBlur(top, (5, 5), 0), cv2.COLOR_BGR2HSV)
     Ainv = np.linalg.inv(A)
     res = {}
-    for name, ranges in COLORS.items():
-        mask = np.zeros(hsv.shape[:2], np.uint8)
-        for lo, hi in ranges:
-            mask |= cv2.inRange(hsv, np.array(lo), np.array(hi))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-        n, lab, stats, cent = cv2.connectedComponentsWithStats(mask)
-        if n <= 1:
+    for name, sp in specs.items():
+        min_area = (1.5e-4 if sp["kind"] == "object" else 2e-3) * ppm ** 2   # 1.2 cm / 4.5 cm squares
+        c = largest_blob(color_mask(hsv, sp["hsv"]), min_area)
+        if c is None:
             res[name] = None
             continue
-        k = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-        area_m2 = stats[k, cv2.CC_STAT_AREA] / ppm ** 2
-        if area_m2 < 4e-4:  # < 2 x 2 cm: noise
-            res[name] = None
-            continue
-        xy = (Ainv @ [*cent[k], 1.0])[:2]
-        if name in ("red", "green", "blue") and camera_h is not None and cam_xy is not None:
-            xy = parallax_correct(xy, np.array(cube_z), cam_xy, camera_h)
+        xy = (Ainv @ [*c, 1.0])[:2]
+        if sp["kind"] == "object" and camera_h is not None and cam_xy is not None:
+            xy = parallax_correct(xy, np.array(sp["height_m"] / 2), cam_xy, camera_h)
         res[name] = xy
     return res
 
@@ -208,10 +193,11 @@ def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_du
     z = np.clip(height_from_size(size_s, s0, Hc), 0.0, None)
     xy = parallax_correct(sm[:, :2], z, cam, Hc)
     closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
-    objs = detect_objects(frames[0], Hs[0], camera_h=Hc, cam_xy=cam[0])
-    objs_end = detect_objects(frames[-1], Hs[-1], camera_h=Hc, cam_xy=cam[-1])
+    specs = session_specs(session)
+    objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0])
+    objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1])
     return {"t": np.arange(T) / fps, "xy": xy, "z": z, "grip": closed, "aperture": sm[:, 3], "size": size_s,
-            "valid": ~long_gap, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
+            "valid": ~long_gap, "cam_xy": cam, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
             "objects_end": objs_end}
 
 

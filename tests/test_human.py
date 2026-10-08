@@ -10,6 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from human.calibrate import marker_table_xy, to_table, video_homographies  # noqa: E402
 from human.extract import (detect_objects, fill_gaps, height_from_size, hysteresis, min_duration,  # noqa: E402
                            parallax_correct)
+from human.objects import (ORDER, hsv_ranges_from_samples, layout_json_path, load_layout_json,  # noqa: E402
+                           sample_patch, save_layout_json, session_specs)
 from human.replay import replay  # noqa: E402
 from human.retarget import retarget  # noqa: E402
 from sim.env import PickPlaceEnv  # noqa: E402
@@ -54,7 +56,7 @@ def test_homography_and_objects():
     f = synth_frame(objs)
     Hs, frac = video_homographies([f, f, f], marker_table_xy(RECT), smooth=1)
     assert np.all(frac == 1.0)
-    det = detect_objects(f, Hs[0])  # flat synthetic squares: no parallax correction
+    det = detect_objects(f, Hs[0], session_specs({}))  # default colors; flat squares: no parallax correction
     for name, (xy, _) in objs.items():
         assert det[name] is not None, name
         assert np.linalg.norm(det[name] - xy) < 0.006, (name, det[name], xy)
@@ -99,3 +101,66 @@ def test_retarget_replay_noisy_expert():
     out = replay(env, (1, 2), lay, ee, g)
     assert out["success"], out["track_err"]
     assert out["obs"].shape[0] == out["action"].shape[0]
+
+
+# ---------------------------------------------------------------------------- household objects / manual fallback
+def test_hsv_fit_handles_red_wraparound():
+    px = np.array([[178, 200, 150], [1, 210, 160], [3, 190, 140], [176, 220, 170]] * 10)
+    r = hsv_ranges_from_samples(px)
+    assert len(r) == 2  # split at 0/179
+    hsv = px.reshape(-1, 1, 3).astype(np.uint8)
+    import cv2 as _cv2
+    m = sum(_cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8)) for lo, hi in r)
+    assert (m > 0).all()
+
+
+def test_custom_household_colors_from_clicks():
+    """Non-default colors (e.g. a pink eraser as "red", a cyan sticky note as "yellow"): defaults fail, ranges
+    fitted from one click per item succeed."""
+    import cv2 as _cv2
+    from human.calibrate import warp_topdown
+    house = {"red": (180, 105, 255), "green": (40, 90, 40), "blue": (120, 60, 20),
+             "yellow": (230, 220, 40), "purple": (60, 60, 60), "orange": (80, 200, 170)}
+    old = dict(BGR)
+    BGR.update(house)
+    try:
+        objs = {"red": ((0.1, 0.1), 0.02), "green": ((0.25, 0.08), 0.02), "blue": ((0.42, 0.12), 0.02),
+                "yellow": ((0.1, 0.26), 0.045), "purple": ((0.25, 0.25), 0.045), "orange": ((0.4, 0.27), 0.045)}
+        f = synth_frame(objs)
+    finally:
+        BGR.clear()
+        BGR.update(old)
+    Hs, _ = video_homographies([f, f], marker_table_xy(RECT), smooth=1)
+    top, A = warp_topdown(f, Hs[0], ppm=1600)
+    hsv = _cv2.cvtColor(_cv2.GaussianBlur(top, (5, 5), 0), _cv2.COLOR_BGR2HSV)
+    session = {"objects": [], "zones": []}
+    for n, (xy, _) in objs.items():
+        px = A @ [xy[0], xy[1], 1]
+        ent = {"name": n, "label": f"thing {n}", "hsv": hsv_ranges_from_samples(sample_patch(hsv, px[:2], 8))}
+        session["objects" if n in ("red", "green", "blue") else "zones"].append(ent)
+    det = detect_objects(f, Hs[0], session_specs(session))
+    for n, (xy, _) in objs.items():
+        assert det[n] is not None and np.linalg.norm(det[n] - xy) < 0.006, (n, det[n], xy)
+
+
+def test_layout_json_roundtrip_and_click_conversion(tmp_path):
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+    from click_layout import clicks_to_table
+    specs = session_specs({"objects": [{"name": "red", "height_cm": 5.0}]})
+    A = np.array([[1600, 0, 96], [0, -1600, 656], [0, 0, 1.0]])  # warp_topdown(ppm=1600) affine
+    cam, Hc = np.array([0.25, 0.175]), 0.75
+    true = {"red": np.array([0.1, 0.1]), "yellow": np.array([0.3, 0.25])}
+    clicks = {}
+    for n, xy in true.items():
+        z = specs[n]["height_m"]
+        proj = cam + (xy - cam) * Hc / (Hc - z)          # where the object's top appears on the table plane
+        clicks[n] = (A @ [*proj, 1])[:2]
+    got = clicks_to_table(clicks, A, specs, cam, Hc)
+    for n in true:
+        assert np.allclose(got[n], true[n], atol=1e-6)
+    full = {n: np.array([0.01 * i, 0.02 * i]) for i, n in enumerate(ORDER)}
+    path = layout_json_path(str(tmp_path), "red-yellow_01.mp4")
+    assert load_layout_json(path) is None
+    save_layout_json(path, full)
+    back = load_layout_json(path)
+    assert all(np.allclose(back[n], full[n]) for n in ORDER)

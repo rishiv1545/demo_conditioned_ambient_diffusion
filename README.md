@@ -30,6 +30,14 @@ python policy/train.py --run_name A --data data/sim --sources sim --sim_tasks se
 python policy/evaluate.py --ckpt checkpoints/A/ckpt.pt --k 50 --out outputs/m3/A
 ```
 
+Phone data (see `RECORDING.md`):
+
+```bash
+python scripts/calib_colors.py data/raw_phone/<session> --check_all   # click each item once -> HSV ranges
+python scripts/click_layout.py data/raw_phone/<session>               # optional manual layout fallback
+python scripts/process_phone.py data/raw_phone/<session>              # -> data/human/, outputs/m2/
+```
+
 Multiprocessing scripts take `--workers` (default: core count minus 2).
 
 ## Reproduce in Colab

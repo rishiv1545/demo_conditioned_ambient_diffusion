@@ -19,6 +19,7 @@ import numpy as np  # noqa: E402
 from human.calibrate import load_session, read_video, video_homographies  # noqa: E402
 from human.extract import (calib_hand_size, extract_clip, height_from_size, overlay_frame,  # noqa: E402
                            plot_traj)
+from human.objects import layout_json_path, load_layout_json, session_specs  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
 from sim.env import CUBES, ZONES, PickPlaceEnv, parse_task, task_name  # noqa: E402
@@ -82,23 +83,27 @@ def main():
     s = load_session(a.session)
     cal = calibrate_session(a.session, s, out)
     env = PickPlaceEnv()
-    rcfg = RetargetConfig(z_offset=a.z_offset)
     clips = sorted(f for f in os.listdir(a.session) if CLIP_RE.match(f))
+    specs = session_specs(s)
+    print("objects:", ", ".join(f"{n} = {specs[n]['label']}" for n in specs))
     rows = []
     for ci, clip in enumerate(clips):
         tname = CLIP_RE.match(clip).group(1)
         task = parse_task(tname)
         name = os.path.splitext(clip)[0]
-        row = {"clip": clip, "task": tname, "extracted": 0, "replay_success": 0, "track_err": np.nan, "reason": ""}
+        row = {"clip": clip, "task": tname, "layout_source": "", "extracted": 0, "replay_success": 0, "track_err": np.nan, "reason": ""}
         try:
             frames, fps = read_video(os.path.join(a.session, clip))
             Hs, _ = video_homographies(frames, s["marker_xy"])
             ex = extract_clip(frames, fps, Hs, s, cal["s0_m"], a.grip_lo, a.grip_hi)
             plot_traj(ex, os.path.join(out, f"{name}_traj.png"), title=clip)
-            lay = layout_from_objects(ex["objects"])
+            manual = load_layout_json(layout_json_path(a.session, clip))
+            lay = layout_from_objects(manual if manual is not None else ex["objects"])
+            row["layout_source"] = "manual_click" if manual is not None else "color"
             tracked = float(ex["tracked"].mean())
             if lay is None:
-                row["reason"] = "missing objects: " + ",".join(k for k, v in ex["objects"].items() if v is None)
+                row["reason"] = ("color detection missed " + ",".join(k for k, v in ex["objects"].items() if v is None)
+                                 + " (fix: scripts/calib_colors.py or scripts/click_layout.py)")
             elif tracked < a.min_tracked:
                 row["reason"] = f"hand tracked in {tracked:.0%} of frames"
             elif not ex["grip"].any():
@@ -108,7 +113,9 @@ def main():
                 print(f"{clip}: extraction failed ({row['reason']})")
                 continue
             row["extracted"] = 1
-            ee, g, _ = retarget(ex, rcfg)
+            # the human pinches the real object at about half its height; the sim cube's center is at 2 cm
+            z_off = a.z_offset - (specs[CUBES[task[0]]]["height_m"] / 2 - 0.02)
+            ee, g, _ = retarget(ex, RetargetConfig(z_offset=z_off))
             render = "front" if ci < a.side_by_side else None
             r = replay(env, task, lay, ee, g, render=render)
             # did the human complete the task? (target cube center inside target zone in the last frame)
@@ -117,7 +124,7 @@ def main():
                           bool(np.all(np.abs(end[CUBES[task[0]]] - lay["zones"][task[1]]) <= 0.05)))
             meta = {"clip": clip, "session": sname, "fps": fps, "tracked_frac": tracked,
                     "human_completed": human_done, "long_gaps": int((~ex["valid"]).sum()),
-                    "z_offset": a.z_offset}
+                    "z_offset": z_off, "layout_source": row["layout_source"]}
             save_human_episode(os.path.join(a.out_data, sname, f"{name}.npz"), r, task, lay,
                                raw_traj=ee, raw_gripper=g, meta=meta)
             row.update(replay_success=int(r["success"]), track_err=r["track_err"], human_completed=int(human_done))
@@ -130,8 +137,8 @@ def main():
         rows.append(row)
 
     with open(os.path.join(out, "clips.csv"), "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["clip", "task", "extracted", "replay_success", "human_completed",
-                                          "track_err", "reason"], extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=["clip", "task", "layout_source", "extracted", "replay_success",
+                                          "human_completed", "track_err", "reason"], extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
     print(f"\n{'task':14s} {'clips':>5s} {'extract':>8s} {'replay':>7s} {'track err (mm)':>15s}")
