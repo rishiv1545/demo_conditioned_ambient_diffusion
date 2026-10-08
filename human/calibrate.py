@@ -17,7 +17,8 @@ def load_session(session_dir):
     with open(os.path.join(session_dir, "session.json")) as f:
         s = json.load(f)
     s["camera_height"] = s["camera_height_cm"] / 100.0
-    s["box_height"] = s["calib_box_height_cm"] / 100.0
+    bh = s.get("calib_box_height_cm")
+    s["box_height"] = bh / 100.0 if bh is not None else None   # unknown -> calibration reports the estimate only
     corners = marker_table_xy(s["rect_cm"])  # near-left, near-right, far-right, far-left
     # Which marker ID is taped at each corner (near-left, near-right, far-right, far-left). Default: as in
     # RECORDING.md. Lets a rotated sticker layout be fixed in software instead of re-taping.

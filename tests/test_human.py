@@ -176,3 +176,14 @@ def test_corner_ids_remap_markers(tmp_path):
         corners = marker_table_xy(RECT)
         for corner, mid in enumerate(ids):
             assert np.allclose(s["marker_xy"][mid], corners[corner])
+
+
+def test_contact_anchoring_removes_posture_bias():
+    from human.retarget import anchor_contact_z
+    t = np.linspace(0, 6, 61)
+    true = np.interp(t, [0, 2, 3, 4, 5, 6], [0.10, 0.01, 0.01, 0.10, 0.01, 0.10])  # down, grasp, carry, place, up
+    grip = (t >= 2) & (t < 5)
+    biased = true + np.interp(t, [2, 5], [0.06, 0.04])                         # posture bias at contacts
+    fixed = anchor_contact_z(t, biased, grip, 0.01)
+    assert abs(fixed[np.argmax(grip)] - 0.01) < 1e-9 and abs(fixed[np.flatnonzero(grip)[-1] + 1] - 0.01) < 1e-9
+    assert np.allclose(anchor_contact_z(t, biased, np.zeros_like(grip), 0.01), biased)

@@ -8,7 +8,6 @@ session.json. Saves <clip>.layout.json next to the clip; process_phone.py then u
 """
 import argparse
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,9 +17,8 @@ import numpy as np  # noqa: E402
 from human.calibrate import camera_ground_xy, load_session, read_video, video_homographies, warp_topdown  # noqa: E402
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import parallax_correct  # noqa: E402
-from human.objects import ORDER, layout_json_path, save_layout_json, session_specs  # noqa: E402
+from human.objects import ORDER, layout_json_path, list_clips, parse_clip, save_layout_json, session_specs  # noqa: E402
 
-CLIP_RE = re.compile(r"^([a-z]+-[a-z]+)_(\d+)\.(mp4|mov|MP4|MOV)$")
 PPM = 1600
 
 
@@ -45,14 +43,14 @@ def main():
     s = load_session(a.session)
     specs = session_specs(s)
     labels = {n: specs[n]["label"] for n in ORDER}
-    clips = a.clips or sorted(f for f in os.listdir(a.session) if CLIP_RE.match(f))
+    clips = a.clips or list_clips(a.session)
     todo = [c for c in clips if a.redo or not os.path.exists(layout_json_path(a.session, c))]
     print(f"{len(todo)} clips to click ({len(clips) - len(todo)} already done)")
     for i, clip in enumerate(todo):
         frames, _ = read_video(os.path.join(a.session, clip), max_frames=15)
         Hs, _ = video_homographies(frames, s["marker_xy"])
         top, A = warp_topdown(frames[0], Hs[0], ppm=PPM)
-        task = CLIP_RE.match(clip).group(1)
+        task = parse_clip(clip)
         clicks, status = collect_clicks(top, ORDER, title=f"layout {i + 1}/{len(todo)}: {clip}", labels=labels,
                                         hint=f"task {task}; click top-center of objects, center of zones")
         if status == "quit":

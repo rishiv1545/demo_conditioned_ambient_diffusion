@@ -153,19 +153,32 @@ def min_duration(binary, n):
 
 
 # ---------------------------------------------------------------------------- objects
-def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclude_xy=None, exclude_half=0.05):
+def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclude_xy=None, exclude_half=0.05,
+                   hand_px=None, hand_margin=0.03):
     """Centers (table m) of the 3 objects and 3 zones via HSV thresholding of the top-down warp, using the
     per-session color specs (human.objects.session_specs). Returns {name: xy or None}. Object centroids are
     parallax-corrected to their mid-height (the blob covers the object's top and visible sides).
     exclude_xy: table points (the marker centers) around which a square of half-size exclude_half is ignored,
-    so black/white items aren't confused with the ArUco squares."""
+    so black/white items aren't confused with the ArUco squares.
+    hand_px: hand landmarks [21, 2] (image px) in this frame; their convex hull plus hand_margin is ignored, so a
+    pale hand isn't taken for a white patch nor the gaps between fingers for a dark object."""
     top, A = warp_topdown(frame, H, ppm=ppm)
     hsv = cv2.cvtColor(cv2.GaussianBlur(top, (5, 5), 0), cv2.COLOR_BGR2HSV)
     Ainv = np.linalg.inv(A)
+    hand_mask = None
+    if hand_px is not None and not np.isnan(hand_px).any():
+        tab = to_table(H, hand_px)
+        hull = cv2.convexHull((np.c_[tab, np.ones(len(tab))] @ A.T)[:, :2].astype(np.int32))
+        hand_mask = np.zeros(hsv.shape[:2], np.uint8)
+        cv2.fillConvexPoly(hand_mask, hull, 255)
+        k = 2 * int(hand_margin * ppm) + 1
+        hand_mask = cv2.dilate(hand_mask, np.ones((k, k), np.uint8))
     res = {}
     for name, sp in specs.items():
         min_area = (1.5e-4 if sp["kind"] == "object" else 2e-3) * ppm ** 2   # 1.2 cm / 4.5 cm squares
         mask = color_mask(hsv, sp["hsv"])
+        if hand_mask is not None:
+            mask[hand_mask > 0] = 0
         for x, y in (exclude_xy if exclude_xy is not None else []):
             u, v = (A @ [x, y, 1.0])[:2].astype(int)
             h = int(exclude_half * ppm)
@@ -202,8 +215,9 @@ def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_du
     closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
     specs = session_specs(session)
     mk = session["marker_xy"]
-    objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0], exclude_xy=mk)
-    objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1], exclude_xy=mk)
+    objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0], exclude_xy=mk, hand_px=lm_px[0])
+    objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1], exclude_xy=mk,
+                              hand_px=lm_px[-1])
     return {"t": np.arange(T) / fps, "xy": xy, "z": z, "grip": closed, "aperture": sm[:, 3], "size": size_s,
             "valid": ~long_gap, "cam_xy": cam, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
             "objects_end": objs_end}

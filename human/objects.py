@@ -12,6 +12,7 @@ overrides color detection for that clip.
 """
 import json
 import os
+import re
 
 import cv2
 import numpy as np
@@ -92,6 +93,21 @@ def largest_blob(mask, min_area_px):
         return None
     k = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     return cent[k] if stats[k, cv2.CC_STAT_AREA] >= min_area_px else None
+
+
+# ---------------------------------------------------------------------------- clip names
+CLIP_RE = re.compile(r"^(red|green|blue)(?:-|_to_)(yellow|purple|orange)(?:_(\d+))?\.(mp4|mov|m4v)$", re.IGNORECASE)
+
+
+def parse_clip(fname):
+    """Task name ("blue-orange") from a demo clip name, or None. Accepts the protocol form "blue-orange_03.mp4"
+    and the short form "blue_to_orange.MOV" (number optional, any case of the extension)."""
+    m = CLIP_RE.match(fname)
+    return f"{m.group(1).lower()}-{m.group(2).lower()}" if m else None
+
+
+def list_clips(session_dir):
+    return sorted(f for f in os.listdir(session_dir) if parse_clip(f))
 
 
 # ---------------------------------------------------------------------------- manual layout overrides

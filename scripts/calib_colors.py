@@ -10,7 +10,6 @@ decide whether to use scripts/click_layout.py.
 import argparse
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,10 +20,9 @@ import numpy as np  # noqa: E402
 from human.calibrate import camera_ground_xy, load_session, read_video, video_homographies, warp_topdown  # noqa: E402
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import detect_objects  # noqa: E402
-from human.objects import ORDER, hsv_ranges_from_samples, sample_patch, session_specs  # noqa: E402
+from human.objects import ORDER, hsv_ranges_from_samples, list_clips, sample_patch, session_specs  # noqa: E402
 from sim.env import CUBES  # noqa: E402
 
-CLIP_RE = re.compile(r"^([a-z]+-[a-z]+)_(\d+)\.(mp4|mov|MP4|MOV)$")
 PPM = 1600
 
 
@@ -60,7 +58,7 @@ def main():
     p.add_argument("--out", default="outputs/m2")
     a = p.parse_args()
     s = load_session(a.session)
-    clips = sorted(f for f in os.listdir(a.session) if CLIP_RE.match(f))
+    clips = list_clips(a.session)
     clip = a.clip or clips[0]
     frame, H, top, A = first_frame_topdown(os.path.join(a.session, clip), s["marker_xy"])
     specs = session_specs(s)

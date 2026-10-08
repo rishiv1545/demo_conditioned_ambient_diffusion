@@ -7,7 +7,6 @@ import csv
 import glob
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,15 +18,14 @@ import numpy as np  # noqa: E402
 from human.calibrate import load_session, read_video, video_homographies  # noqa: E402
 from human.extract import (calib_hand_size, extract_clip, height_from_size, overlay_frame,  # noqa: E402
                            plot_traj)
-from human.objects import layout_json_path, load_layout_json, session_specs  # noqa: E402
+from human.objects import layout_json_path, list_clips, load_layout_json, parse_clip, session_specs  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
 from sim.env import CUBES, ZONES, PickPlaceEnv, parse_task, task_name  # noqa: E402
 
-CLIP_RE = re.compile(r"^([a-z]+-[a-z]+)_(\d+)\.(mp4|mov|MP4|MOV)$")
 
 
-def calibrate_session(sdir, s, out):
+def calibrate_session(sdir, s, out, fit_camera_height=True):
     res = {}
     for name in ("calib_table", "calib_box"):
         path = next(iter(glob.glob(os.path.join(sdir, name + ".*"))), None)
@@ -38,13 +36,28 @@ def calibrate_session(sdir, s, out):
         res[name] = calib_hand_size(frames, fps, Hs)
     s0 = res["calib_table"][0]
     z_box = height_from_size(res["calib_box"][0], s0, s["camera_height"])
+    known = s["box_height"] is not None
     cal = {"s0_m": s0, "s0_std_m": res["calib_table"][1], "s_box_m": res["calib_box"][0],
-           "z_box_est_m": float(z_box), "z_box_true_m": s["box_height"],
-           "z_box_err_m": float(z_box - s["box_height"])}
+           "camera_height_m": s["camera_height"], "z_box_est_m": float(z_box), "z_box_true_m": s["box_height"],
+           "z_box_err_m": float(z_box - s["box_height"]) if known else None}
+    if known and fit_camera_height:
+        # two-point calibration: s = L*H/(H - z) at z=0 (s0) and z=box gives H = box / (1 - s0/s_box).
+        # The box then no longer validates the height model; the fitted H is cross-checked against the
+        # marker-based (solvePnP) estimate instead.
+        h_fit = s["box_height"] / (1.0 - s0 / res["calib_box"][0])
+        cal.update(camera_height_given_m=s["camera_height"], camera_height_fit_m=float(h_fit))
+        print(f"camera height fitted from the box clip: {h_fit * 100:.1f} cm (session.json: "
+              f"{s['camera_height'] * 100:.1f} cm; with that, the box was estimated at {z_box * 100:.1f} cm, "
+              f"error {(z_box - s['box_height']) * 100:+.1f} cm)")
+        s["camera_height"] = h_fit
     with open(os.path.join(out, "calibration.json"), "w") as f:
         json.dump(cal, f, indent=2)
-    print(f"hand size on table {s0 * 100:.2f} cm; box height est {z_box * 100:.1f} cm vs true "
-          f"{s['box_height'] * 100:.1f} cm (error {(z_box - s['box_height']) * 100:+.1f} cm)")
+    if known:
+        print(f"hand size on table {s0 * 100:.2f} cm; box height est {z_box * 100:.1f} cm vs true "
+              f"{s['box_height'] * 100:.1f} cm (error {(z_box - s['box_height']) * 100:+.1f} cm)")
+    else:
+        print(f"hand size on table {s0 * 100:.2f} cm; box height est {z_box * 100:.1f} cm "
+              f"(true box height not given in session.json: error unknown)")
     return cal
 
 
@@ -61,7 +74,7 @@ def side_by_side(phone_frames, fps, ex, sim_frames, path, hz=10.0):
         i = min(int(round(k / hz * fps)), len(phone_frames) - 1)
         pf = overlay_frame(phone_frames[i], ex["lm_px"][i], ex["xy"][i], ex["z"][i], ex["grip"][i], i)
         pf = cv2.cvtColor(pf, cv2.COLOR_BGR2RGB)
-        pf = cv2.resize(pf, (int(pf.shape[1] * h / pf.shape[0]), h))
+        pf = cv2.resize(pf, (2 * round(pf.shape[1] * h / pf.shape[0] / 2), h))  # even width for H.264
         out.append(np.concatenate([pf, sf], 1))
     imageio.mimsave(path, out, fps=hz, macro_block_size=1)
 
@@ -73,6 +86,11 @@ def main():
     p.add_argument("--out", default="outputs/m2")
     p.add_argument("--side_by_side", type=int, default=3, help="number of clips to render side-by-side videos for")
     p.add_argument("--z_offset", type=float, default=0.0)
+    p.add_argument("--fit_camera_height", type=int, default=0,
+                   help="1: replace camera_height_cm by a fit from the box clip (when the height wasn't measured); "
+                        "0: use the measured height and report the box-height error as validation")
+    p.add_argument("--contact_z", type=int, default=1,
+                   help="re-anchor z so the pinch point is at the object's half height when the grip closes/opens")
     p.add_argument("--grip_lo", type=float, default=0.65)
     p.add_argument("--grip_hi", type=float, default=0.9)
     p.add_argument("--min_tracked", type=float, default=0.8, help="min fraction of frames with a hand")
@@ -81,14 +99,14 @@ def main():
     out = os.path.join(a.out, sname)
     os.makedirs(out, exist_ok=True)
     s = load_session(a.session)
-    cal = calibrate_session(a.session, s, out)
+    cal = calibrate_session(a.session, s, out, bool(a.fit_camera_height))
     env = PickPlaceEnv()
-    clips = sorted(f for f in os.listdir(a.session) if CLIP_RE.match(f))
+    clips = list_clips(a.session)
     specs = session_specs(s)
     print("objects:", ", ".join(f"{n} = {specs[n]['label']}" for n in specs))
     rows = []
     for ci, clip in enumerate(clips):
-        tname = CLIP_RE.match(clip).group(1)
+        tname = parse_clip(clip)
         task = parse_task(tname)
         name = os.path.splitext(clip)[0]
         row = {"clip": clip, "task": tname, "layout_source": "", "extracted": 0, "replay_success": 0, "track_err": np.nan, "reason": ""}
@@ -115,7 +133,8 @@ def main():
             row["extracted"] = 1
             # the human pinches the real object at about half its height; the sim cube's center is at 2 cm
             z_off = a.z_offset - (specs[CUBES[task[0]]]["height_m"] / 2 - 0.02)
-            ee, g, _ = retarget(ex, RetargetConfig(z_offset=z_off))
+            h_obj = specs[CUBES[task[0]]]["height_m"]
+            ee, g, _ = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None))
             render = "front" if ci < a.side_by_side else None
             r = replay(env, task, lay, ee, g, render=render)
             # did the human complete the task? (target cube center inside target zone in the last frame)
