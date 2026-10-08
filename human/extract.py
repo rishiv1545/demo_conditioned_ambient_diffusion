@@ -153,17 +153,24 @@ def min_duration(binary, n):
 
 
 # ---------------------------------------------------------------------------- objects
-def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000):
+def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclude_xy=None, exclude_half=0.05):
     """Centers (table m) of the 3 objects and 3 zones via HSV thresholding of the top-down warp, using the
     per-session color specs (human.objects.session_specs). Returns {name: xy or None}. Object centroids are
-    parallax-corrected to their mid-height (the blob covers the object's top and visible sides)."""
+    parallax-corrected to their mid-height (the blob covers the object's top and visible sides).
+    exclude_xy: table points (the marker centers) around which a square of half-size exclude_half is ignored,
+    so black/white items aren't confused with the ArUco squares."""
     top, A = warp_topdown(frame, H, ppm=ppm)
     hsv = cv2.cvtColor(cv2.GaussianBlur(top, (5, 5), 0), cv2.COLOR_BGR2HSV)
     Ainv = np.linalg.inv(A)
     res = {}
     for name, sp in specs.items():
         min_area = (1.5e-4 if sp["kind"] == "object" else 2e-3) * ppm ** 2   # 1.2 cm / 4.5 cm squares
-        c = largest_blob(color_mask(hsv, sp["hsv"]), min_area)
+        mask = color_mask(hsv, sp["hsv"])
+        for x, y in (exclude_xy if exclude_xy is not None else []):
+            u, v = (A @ [x, y, 1.0])[:2].astype(int)
+            h = int(exclude_half * ppm)
+            mask[max(0, v - h):max(0, v + h), max(0, u - h):max(0, u + h)] = 0
+        c = largest_blob(mask, min_area)
         if c is None:
             res[name] = None
             continue
@@ -194,8 +201,9 @@ def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_du
     xy = parallax_correct(sm[:, :2], z, cam, Hc)
     closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
     specs = session_specs(session)
-    objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0])
-    objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1])
+    mk = session["marker_xy"]
+    objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0], exclude_xy=mk)
+    objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1], exclude_xy=mk)
     return {"t": np.arange(T) / fps, "xy": xy, "z": z, "grip": closed, "aperture": sm[:, 3], "size": size_s,
             "valid": ~long_gap, "cam_xy": cam, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
             "objects_end": objs_end}

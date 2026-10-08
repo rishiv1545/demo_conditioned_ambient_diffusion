@@ -79,7 +79,7 @@ def main():
     # verify on the calibration frame
     s = load_session(a.session)
     specs = session_specs(s)
-    det = detect_objects(frame, H, specs)  # no parallax here: compare with the clicks in the warped view
+    det = detect_objects(frame, H, specs, exclude_xy=s["marker_xy"])  # no parallax here: compare with the clicks in the warped view
     out = os.path.join(a.out, os.path.basename(os.path.normpath(a.session)))
     os.makedirs(out, exist_ok=True)
     vis = top.copy()
@@ -100,7 +100,8 @@ def main():
         bad = 0
         for c in clips:
             fr, Hc, _, _ = first_frame_topdown(os.path.join(a.session, c), s["marker_xy"])
-            d = detect_objects(fr, Hc, specs, camera_h=s["camera_height"], cam_xy=camera_ground_xy(Hc, fr.shape))
+            d = detect_objects(fr, Hc, specs, camera_h=s["camera_height"], cam_xy=camera_ground_xy(Hc, fr.shape),
+                               exclude_xy=s["marker_xy"])
             miss = [n for n in ORDER if d[n] is None]
             bad += bool(miss)
             print(f"{c:22s} {'ok' if not miss else 'missing ' + ','.join(miss)}")
