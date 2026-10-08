@@ -62,6 +62,9 @@
          placed beyond the far edge: a straight-down camera is mostly blocked by the arm during reach/carry
          (NOTES.md). Its image is rotated 180 deg compared with the human phone clips (far edge at the bottom). -->
     <camera name="phone" pos="0.25 0.55 0.95" xyaxes="-1 0 0 0 -0.9251 0.3798" fovy="40"/>
+    <!-- "scene" (env v2 images): framed so the workspace box (+2 cm, up to 16 cm carry height) just fills the
+         square image; rendered at 512 px. Computed in NOTES.md. -->
+    <camera name="scene" pos="0.25 0.55 0.95" xyaxes="-1.0000 -0.0000 0.0000 0.0000 -0.9543 0.2989" fovy="38.0"/>
     <!-- "phone_match": pose set at runtime from the real phone's ArUco-estimated pose (human/camera_match.py) -->
     <camera name="phone_match" pos="0.25 0.175 0.45" xyaxes="1 0 0 0 1 0" fovy="90"/>
     <camera name="front" pos="0.25 1.05 0.65" mode="targetbody" target="cam_target" fovy="45"/>

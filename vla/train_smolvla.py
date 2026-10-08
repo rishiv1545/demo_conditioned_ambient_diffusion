@@ -58,6 +58,9 @@ def main():
     p.add_argument("--workers", type=int, default=max(1, min(8, (os.cpu_count() or 2) - 2)))
     p.add_argument("--device", default="auto")
     p.add_argument("--dtype", default="auto", help="auto (bf16 where supported, else fp32) | keep | fp32")
+    p.add_argument("--unfreeze_vlm", type=int, default=0,
+                   help="1: also train the VLM language layers (SigLIP + connector stay frozen); needs a big GPU")
+    p.add_argument("--vlm_lr", type=float, default=1e-5, help="learning rate for the VLM layers with --unfreeze_vlm 1")
     p.add_argument("--features", default="cache", choices=["cache", "raw"],
                    help="cache: train from precomputed frozen vision features (built on first use); raw: images")
     p.add_argument("--resume", action="store_true")
@@ -73,7 +76,7 @@ def main():
     chunk = base_config().chunk_size
     dss, stats = open_datasets(a.data, chunk)
     features = dss[0].meta.features
-    policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype)
+    policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype, unfreeze_vlm=bool(a.unfreeze_vlm))
     img_keys = list(cfg.image_features)
     if a.features == "cache":
         for root in a.data:
@@ -93,7 +96,12 @@ def main():
                                          num_workers=a.workers, drop_last=True,
                                          persistent_workers=a.workers > 0, pin_memory=dev == "cuda")
     params = [q for q in policy.parameters() if q.requires_grad]
-    opt = torch.optim.AdamW(params, lr=a.lr, betas=cfg.optimizer_betas, eps=cfg.optimizer_eps,
+    vlm_ids = {id(q) for q in policy.model.vlm_with_expert.vlm.parameters()}
+    groups = [{"params": [q for q in params if id(q) not in vlm_ids], "lr": a.lr}]
+    if a.unfreeze_vlm:
+        groups.append({"params": [q for q in params if id(q) in vlm_ids], "lr": a.vlm_lr})
+        print(f"unfrozen VLM: {sum(q.numel() for q in groups[1]['params']) / 1e6:.0f}M params at lr {a.vlm_lr}")
+    opt = torch.optim.AdamW(groups, betas=cfg.optimizer_betas, eps=cfg.optimizer_eps,
                             weight_decay=cfg.optimizer_weight_decay)
     if a.lr_schedule == "constant":
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / a.warmup))

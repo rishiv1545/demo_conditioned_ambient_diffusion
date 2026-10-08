@@ -34,8 +34,11 @@ DEFAULT_HELDOUT = SPLITS[DEFAULT_SPLIT]
 
 OBS_DIM = 19  # ee(3) + gripper width(1) + cubes(3x3) + zones xy(3x2)
 STATE_DIM = 4  # SmolVLA observation.state: ee(3) + gripper width(1); no privileged object positions
-IMAGE_CAMERAS = ("phone",)
-IMAGE_SIZE = 256
+# Image observations for SmolVLA. v2 images: a scene camera framed to the workspace plus a wrist camera, both at
+# 512 px (SmolVLA's input size, so no upsampling). The first pilot used ("phone",) at 256 px; evaluation always
+# takes the cameras and size from the training data's features.
+IMAGE_CAMERAS = ("scene", "wrist")
+IMAGE_SIZE = 512
 
 
 def task_name(task):

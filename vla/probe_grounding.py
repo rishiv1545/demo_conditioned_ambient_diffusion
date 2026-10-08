@@ -16,7 +16,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vla.common import build_policy, list_checkpoints, load_run_config, load_trainable, pick_device  # noqa: E402
+from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
+                        pick_device)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -38,6 +39,7 @@ def main():
     side = os.path.join(rc["args"]["data"][0], "episodes.json")
     env = PickPlaceEnv(env_config(json.load(open(side)).get("env_cfg") if os.path.exists(side) else None))
     policy, pre, post, _ = build_policy(rc["features"], rc["stats"], dev)
+    cams, size = image_spec(rc["features"])
     policy.eval()
     cks = dict(list_checkpoints(a.run))
     steps = sorted(cks) if a.step == "all" else [max(cks) if a.step == "latest" else int(a.step)]
@@ -47,13 +49,14 @@ def main():
         hits, dists, nearest, nearest_each = [], [], [], []
         for k in range(a.layouts):
             env.reset((0, 0), seed=EVAL_SEED_BASE + 777_000 + k)
-            img = torch.from_numpy(env.images()["phone"]).permute(2, 0, 1).float()[None] / 255
+            ims = {f"observation.images.{c}": torch.from_numpy(im).permute(2, 0, 1).float()[None] / 255
+                   for c, im in env.images(size, cams).items()}
             state = torch.from_numpy(env.state())[None]
             cubes = env.layout["cubes"]
             for c in range(3):
                 pts = []
                 for _ in range(a.samples):
-                    b = {"observation.images.phone": img, "observation.state": state, "task": [instruction((c, 0))]}
+                    b = {**ims, "observation.state": state, "task": [instruction((c, 0))]}
                     with torch.no_grad():
                         ch = post(policy.predict_action_chunk(pre(b)))[0].cpu().numpy()
                     pts.append(ch[np.argmin(ch[:, 2]), :2])

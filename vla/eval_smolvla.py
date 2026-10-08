@@ -14,20 +14,21 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vla.common import build_policy, list_checkpoints, load_run_config, load_trainable, pick_device  # noqa: E402
+from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
+                        pick_device)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
-from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, IMAGE_CAMERAS, ZONES, PickPlaceEnv, env_config,  # noqa: E402
+from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_config,  # noqa: E402
                      instruction, resolve_heldout, task_name)
 
 
-def to_batch(envs, tasks, dev):
-    imgs = {c: [] for c in IMAGE_CAMERAS}
+def to_batch(envs, tasks, dev, cams, size):
+    imgs = {c: [] for c in cams}
     for e in envs:
-        for c, im in e.images().items():
+        for c, im in e.images(size, cams).items():
             imgs[c].append(torch.from_numpy(im).permute(2, 0, 1).float() / 255.0)
     b = {f"observation.images.{c}": torch.stack(v) for c, v in imgs.items()}
     b["observation.state"] = torch.from_numpy(np.stack([e.state() for e in envs]))
@@ -35,7 +36,7 @@ def to_batch(envs, tasks, dev):
     return b
 
 
-def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None):
+def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, cams=("phone",), size=256):
     """jobs: list of (task, seed). Returns list of (success, steps) and, for indices in `record`, frame lists."""
     envs = [PickPlaceEnv(env_cfg) for _ in jobs]
     for e, (t, s) in zip(envs, jobs):
@@ -54,7 +55,7 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None):
         for i in frames:
             frames[i].append(envs[i].render("front"))
         with torch.no_grad():
-            act = post(policy.select_action(pre(to_batch(envs, tasks, dev)))).cpu().numpy()
+            act = post(policy.select_action(pre(to_batch(envs, tasks, dev, cams, size)))).cpu().numpy()
         for i, e in enumerate(envs):
             if done[i]:
                 continue                     # finished envs are frozen (their actions are ignored)
@@ -105,7 +106,8 @@ def main():
     side = json.load(open(side_path)) if os.path.exists(side_path) else {}
     spec = a.heldout or (",".join(side["heldout"]) if "heldout" in side else DEFAULT_SPLIT)
     env_cfg = env_config(side.get("env_cfg"))   # the env version of the training data (absent: v1)
-    print(f"env: gripper yaw {env_cfg.gripper_yaw_deg:.0f} deg, starts {'closed' if env_cfg.start_gripper_closed else 'open'}")
+    cams, size = image_spec(rc["features"])
+    print(f"cameras {cams} at {size} px; env: gripper yaw {env_cfg.gripper_yaw_deg:.0f} deg, starts {'closed' if env_cfg.start_gripper_closed else 'open'}")
     heldout = resolve_heldout(spec)
     policy, pre, post, _ = build_policy(rc["features"], rc["stats"], dev, n_action_steps=a.n_action_steps)
     step = "base"
@@ -130,7 +132,7 @@ def main():
             if vid_left[sp] > 0 and j % 6 == 0:
                 rec.append(j)
                 vid_left[sp] -= 1
-        res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg)
+        res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg, cams=cams, size=size)
         for (t, s), (ok, n, g) in zip(chunk, res):
             rows.append((t, s, ok, n, g))
         for j, fr in frames.items():

@@ -53,8 +53,11 @@ def resolve_dtype(device, dtype="auto"):
     return None  # keep SmolVLA's default (bf16 backbone, fp32 elsewhere)
 
 
-def build_policy(features, stats, device, n_action_steps=None, dtype="auto"):
-    """SmolVLA-base weights with our input/output features (4-D state, 4-D action, our cameras)."""
+def build_policy(features, stats, device, n_action_steps=None, dtype="auto", unfreeze_vlm=False):
+    """SmolVLA-base weights with our input/output features (4-D state, 4-D action, our cameras).
+    unfreeze_vlm: also train the VLM's language-model layers (train_expert_only=False). SigLIP and the connector stay
+    frozen, so the vision-feature cache (post-connector) stays valid; grounding "red" to the red cube happens in
+    the language layers, where image and instruction tokens attend to each other."""
     from lerobot.configs.types import FeatureType
     from lerobot.datasets.utils import dataset_to_policy_features
     from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
@@ -67,13 +70,24 @@ def build_policy(features, stats, device, n_action_steps=None, dtype="auto"):
     cfg.input_features = {k: f for k, f in pf.items() if f.type is not FeatureType.ACTION}
     if n_action_steps is not None:
         cfg.n_action_steps = n_action_steps
+    cfg.train_expert_only = not unfreeze_vlm
     policy = SmolVLAPolicy.from_pretrained(BASE, config=cfg)
+    if unfreeze_vlm:
+        vlm = policy.model.vlm_with_expert.get_vlm_model()
+        for prm in list(vlm.vision_model.parameters()) + list(vlm.connector.parameters()):
+            prm.requires_grad = False
     dt = resolve_dtype(device, dtype)
     if dt is not None:
         policy = policy.to(dt)
     policy = policy.to(device)
     pre, post = make_smolvla_pre_post_processors(cfg, dataset_stats=stats)
     return policy, pre, post, cfg
+
+
+def image_spec(features):
+    """(camera names, image size) from dataset/policy features ("observation.images.<cam>", shape [H, W, C])."""
+    keys = sorted(k for k in features if k.startswith("observation.images."))
+    return [k.rsplit(".", 1)[1] for k in keys], int(features[keys[0]]["shape"][0])
 
 
 def trainable_state(policy):
