@@ -152,6 +152,42 @@ def min_duration(binary, n):
     return b
 
 
+def grasp_interval(ap, fps, close_frac=0.6, open_frac=0.5, spread_pct=97, grasp_s=0.5, min_dur_s=0.2):
+    """Gripper state for a single pick-and-place clip, with thresholds relative to the clip itself.
+    spread = the clip's wide-open aperture level (97th percentile). Close: the aperture falls below
+    close_frac * spread. Open: it rises above m + open_frac * (spread - m), where m is the grasp opening (median over
+    the first grasp_s after closing), so a small object's barely-opening release is still detected. Only the first
+    closed interval followed by a reopening counts (one grasp per clip): relaxing the hand at HOME after the
+    release, below the close threshold, is not a second grasp. Returns (closed [T] bool, info dict)."""
+    ap = np.asarray(ap, float)
+    T = len(ap)
+    spread = float(np.percentile(ap, spread_pct))
+    c = close_frac * spread
+    closed = np.zeros(T, bool)
+    info = {"spread": spread, "close_thr": c}
+    min_n = max(1, int(min_dur_s * fps))
+    first_open = np.flatnonzero(ap > c)
+    t = int(first_open[0]) if len(first_open) else T   # a close is a falling crossing: the hand must be open first
+    while t < T:
+        below = np.flatnonzero(ap[t:] < c)
+        if len(below) == 0:
+            break
+        tc = t + below[0]
+        m = float(np.median(ap[tc:tc + max(1, int(grasp_s * fps))]))
+        o = m + open_frac * (spread - m)
+        above = np.flatnonzero(ap[tc:] > o)
+        if len(above) == 0:
+            info.update(note="no reopening after the first close")
+            break
+        to = tc + above[0]
+        if to - tc >= min_n:
+            closed[tc:to] = True
+            info.update(grasp_aperture=m, open_thr=o, t_close=tc / fps, t_open=to / fps)
+            break
+        t = to                                   # too short: a flicker, keep looking
+    return closed, info
+
+
 # ---------------------------------------------------------------------------- objects
 def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclude_xy=None, exclude_half=0.05,
                    hand_px=None, hand_margin=0.03):
@@ -195,7 +231,8 @@ def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclud
 
 
 # ---------------------------------------------------------------------------- full extraction
-def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_dur_s=0.2, max_gap_s=0.5):
+def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_dur_s=0.2, max_gap_s=0.5,
+                 grip_mode="relative"):
     """Returns dict with t [T], xy [T,2], z [T], grip [T] (bool closed), aperture [T], valid [T], lm_px, objects."""
     Hc = session["camera_height"]
     lm_px = track_hand(frames, fps, session.get("hand", "right"))
@@ -212,14 +249,18 @@ def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_du
     size_s = sm[:, 2]
     z = np.clip(height_from_size(size_s, s0, Hc), 0.0, None)
     xy = parallax_correct(sm[:, :2], z, cam, Hc)
-    closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
+    if grip_mode == "relative":
+        closed, grip_info = grasp_interval(sm[:, 3], fps, min_dur_s=min_dur_s)
+    else:  # fixed thresholds (first version)
+        closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
+        grip_info = {"close_thr": grip_lo, "open_thr": grip_hi}
     specs = session_specs(session)
     mk = session["marker_xy"]
     objs = detect_objects(frames[0], Hs[0], specs, camera_h=Hc, cam_xy=cam[0], exclude_xy=mk, hand_px=lm_px[0])
     objs_end = detect_objects(frames[-1], Hs[-1], specs, camera_h=Hc, cam_xy=cam[-1], exclude_xy=mk,
                               hand_px=lm_px[-1])
     return {"t": np.arange(T) / fps, "xy": xy, "z": z, "grip": closed, "aperture": sm[:, 3], "size": size_s,
-            "valid": ~long_gap, "cam_xy": cam, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
+            "valid": ~long_gap, "cam_xy": cam, "grip_info": grip_info, "tracked": ~np.isnan(lm_px[:, 0, 0]), "lm_px": lm_px, "objects": objs,
             "objects_end": objs_end}
 
 

@@ -187,3 +187,27 @@ def test_contact_anchoring_removes_posture_bias():
     fixed = anchor_contact_z(t, biased, grip, 0.01)
     assert abs(fixed[np.argmax(grip)] - 0.01) < 1e-9 and abs(fixed[np.flatnonzero(grip)[-1] + 1] - 0.01) < 1e-9
     assert np.allclose(anchor_contact_z(t, biased, np.zeros_like(grip), 0.01), biased)
+
+
+def test_grasp_interval_relative_thresholds():
+    from human.extract import grasp_interval
+    fps = 10
+    # exaggerated pattern: rest 0.9 -> spread 2.0 -> grasp 0.85 (a wide object) -> spread 2.0 -> rest 0.9
+    ap = np.r_[np.full(20, 0.9), np.full(10, 2.0), np.full(30, 0.85), np.full(10, 2.0), np.full(20, 0.9)]
+    closed, info = grasp_interval(ap, fps)
+    assert closed[30:60].all() and not closed[:30].any() and not closed[60:].any()   # rest at HOME is not a grasp
+    # small object, barely-opening release: rest 0.9, grasp 0.25, release to only 0.6
+    ap2 = np.r_[np.full(20, 0.9), np.full(30, 0.25), np.full(20, 0.6), np.full(10, 0.9)]
+    c2, info2 = grasp_interval(ap2, fps)
+    assert c2[20:50].all() and not c2[50:].any()
+
+
+def test_dwell_inserted_at_switches():
+    from human.retarget import add_dwell
+    ee = np.arange(10, dtype=float)[:, None].repeat(3, 1)
+    g = np.array([0, 0, 0, 1, 1, 1, 1, 0, 0, 0], np.float32)
+    E, G, T = add_dwell(ee, g, 2)
+    assert len(T) == len(E) and T[0] == 0 and np.all(np.diff(T) >= 0)
+    assert len(E) == 10 + 2 * 2 * 2
+    i = np.flatnonzero(np.diff(G) != 0)[0] + 1        # first switch in the output
+    assert np.allclose(E[i - 2:i + 2], ee[3]) and G[i - 1] == 0 and G[i] == 1

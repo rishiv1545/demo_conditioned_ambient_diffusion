@@ -19,6 +19,7 @@ from human.calibrate import load_session, read_video, video_homographies  # noqa
 from human.extract import (calib_hand_size, extract_clip, height_from_size, overlay_frame,  # noqa: E402
                            plot_traj)
 from human.objects import layout_json_path, list_clips, load_layout_json, parse_clip, session_specs  # noqa: E402
+from human.camera_match import apply_camera, estimate_phone_camera  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
 from sim.env import CUBES, ZONES, PickPlaceEnv, parse_task, task_name  # noqa: E402
@@ -27,8 +28,11 @@ from sim.env import CUBES, ZONES, PickPlaceEnv, parse_task, task_name  # noqa: E
 
 def calibrate_session(sdir, s, out, fit_camera_height=True):
     res = {}
+    # "calib_from": another session folder (relative to this one) whose calibration clips to reuse, for sessions
+    # recorded with the same camera mount and the same person
+    csrc = os.path.normpath(os.path.join(sdir, s["calib_from"])) if s.get("calib_from") else sdir
     for name in ("calib_table", "calib_box"):
-        path = next(iter(glob.glob(os.path.join(sdir, name + ".*"))), None)
+        path = next(iter(glob.glob(os.path.join(csrc, name + ".*"))), None)
         if path is None:
             raise FileNotFoundError(f"{name}.mp4 missing in {sdir}")
         frames, fps = read_video(path)
@@ -67,11 +71,14 @@ def layout_from_objects(objs):
     return {"cubes": np.stack([objs[c] for c in CUBES]), "zones": np.stack([objs[z] for z in ZONES])}
 
 
-def side_by_side(phone_frames, fps, ex, sim_frames, path, hz=10.0):
+def side_by_side(phone_frames, fps, ex, sim_frames, path, times, hz=10.0):
+    """[phone with overlays | sim from the phone's viewpoint | sim front view], aligned by the source time of each
+    replay step (the phone panel freezes during the inserted dwells)."""
     out = []
     h = sim_frames[0].shape[0]
     for k, sf in enumerate(sim_frames):
-        i = min(int(round(k / hz * fps)), len(phone_frames) - 1)
+        tk = times[min(k, len(times) - 1)]
+        i = min(int(round(tk * fps)), len(phone_frames) - 1)
         pf = overlay_frame(phone_frames[i], ex["lm_px"][i], ex["xy"][i], ex["z"][i], ex["grip"][i], i)
         pf = cv2.cvtColor(pf, cv2.COLOR_BGR2RGB)
         pf = cv2.resize(pf, (2 * round(pf.shape[1] * h / pf.shape[0] / 2), h))  # even width for H.264
@@ -91,6 +98,9 @@ def main():
                         "0: use the measured height and report the box-height error as validation")
     p.add_argument("--contact_z", type=int, default=1,
                    help="re-anchor z so the pinch point is at the object's half height when the grip closes/opens")
+    p.add_argument("--grip_mode", default="relative", choices=["relative", "fixed"],
+                   help="relative: per-clip thresholds (spread level / grasp opening); fixed: --grip_lo/--grip_hi")
+    p.add_argument("--dwell_s", type=float, default=0.5, help="EE hold before/after each gripper switch (0 = off)")
     p.add_argument("--grip_lo", type=float, default=0.65)
     p.add_argument("--grip_hi", type=float, default=0.9)
     p.add_argument("--min_tracked", type=float, default=0.8, help="min fraction of frames with a hand")
@@ -101,6 +111,21 @@ def main():
     s = load_session(a.session)
     cal = calibrate_session(a.session, s, out, bool(a.fit_camera_height))
     env = PickPlaceEnv()
+    # sim camera matching the phone's viewpoint, from the markers in the (table) calibration clip
+    csrc = os.path.normpath(os.path.join(a.session, s["calib_from"])) if s.get("calib_from") else a.session
+    cframes, _ = read_video(next(iter(glob.glob(os.path.join(csrc, "calib_table.*")))), max_frames=30)
+    cam = estimate_phone_camera(cframes, s["marker_xy"], s["camera_height"])
+    apply_camera(env, cam)
+    cal["phone_camera"] = cam
+    with open(os.path.join(out, "calibration.json"), "w") as f:
+        json.dump(cal, f, indent=2)
+    print(f"phone camera from markers: height {cam['pos'][2] * 100:.1f} cm, tilt {cam['tilt_deg']:.1f} deg, "
+          f"fov {cam['fovx']:.0f}x{cam['fovy']:.0f} deg, marker reprojection error {cam['reproj_err_px']:.1f} px")
+    vh = 480
+    vw = 2 * round(cam["width"] * vh / cam["height"] / 2)
+
+    def render_pair(e):
+        return np.concatenate([e.render_camera("phone_match", vh, vw), e.render_camera("front", vh, 640)], 1)
     clips = list_clips(a.session)
     specs = session_specs(s)
     print("objects:", ", ".join(f"{n} = {specs[n]['label']}" for n in specs))
@@ -113,7 +138,7 @@ def main():
         try:
             frames, fps = read_video(os.path.join(a.session, clip))
             Hs, _ = video_homographies(frames, s["marker_xy"])
-            ex = extract_clip(frames, fps, Hs, s, cal["s0_m"], a.grip_lo, a.grip_hi)
+            ex = extract_clip(frames, fps, Hs, s, cal["s0_m"], a.grip_lo, a.grip_hi, grip_mode=a.grip_mode)
             plot_traj(ex, os.path.join(out, f"{name}_traj.png"), title=clip)
             manual = load_layout_json(layout_json_path(a.session, clip))
             lay = layout_from_objects(manual if manual is not None else ex["objects"])
@@ -134,8 +159,9 @@ def main():
             # the human pinches the real object at about half its height; the sim cube's center is at 2 cm
             z_off = a.z_offset - (specs[CUBES[task[0]]]["height_m"] / 2 - 0.02)
             h_obj = specs[CUBES[task[0]]]["height_m"]
-            ee, g, _ = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None))
-            render = "front" if ci < a.side_by_side else None
+            ee, g, tt = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None,
+                                                   dwell_s=a.dwell_s))
+            render = render_pair if ci < a.side_by_side else None
             r = replay(env, task, lay, ee, g, render=render)
             # did the human complete the task? (target cube center inside target zone in the last frame)
             end = ex["objects_end"]
@@ -148,7 +174,7 @@ def main():
                                raw_traj=ee, raw_gripper=g, meta=meta)
             row.update(replay_success=int(r["success"]), track_err=r["track_err"], human_completed=int(human_done))
             if render:
-                side_by_side(frames, fps, ex, r["frames"], os.path.join(out, f"{name}_side_by_side.mp4"))
+                side_by_side(frames, fps, ex, r["frames"], os.path.join(out, f"{name}_side_by_side.mp4"), tt)
             print(f"{clip}: replay {'SUCCESS' if r['success'] else 'fail'}  track err {r['track_err'] * 1000:.1f} mm")
         except Exception as e:  # keep going; record the failure
             row["reason"] = f"error: {e}"

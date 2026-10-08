@@ -17,11 +17,11 @@ def replay(env, task, layout, ee, grip, render=None):
     for a in acts:
         O.append(obs)
         if render:
-            frames.append(env.render(render))
+            frames.append(render(env) if callable(render) else env.render(render))
         obs, succ = env.step(a)
         errs.append(np.linalg.norm(env.ee_pos() - a[:3]))
     if render:
-        frames.append(env.render(render))
+        frames.append(render(env) if callable(render) else env.render(render))
     return {"obs": np.stack(O), "action": acts[:len(O)], "success": succ, "track_err": float(np.mean(errs)),
             "track_err_max": float(np.max(errs)), "frames": frames}
 

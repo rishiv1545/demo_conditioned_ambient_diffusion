@@ -228,6 +228,17 @@ class PickPlaceEnv:
         return out
 
     # ------------------------------------------------------------------ rendering
+    def render_camera(self, camera, height, width):
+        """Render any camera at any size (renderers are cached per size)."""
+        if not hasattr(self, "_sized"):
+            self._sized = {}
+        key = (height, width)
+        if key not in self._sized:
+            self._sized[key] = mujoco.Renderer(self.m, height, width)
+        r = self._sized[key]
+        r.update_scene(self.d, camera=camera)
+        return r.render()
+
     def render(self, camera="top"):
         if self._renderer is None:
             self._renderer = mujoco.Renderer(self.m, *self.render_size)
@@ -235,7 +246,8 @@ class PickPlaceEnv:
         return self._renderer.render()
 
     def close(self):
-        for r in (self._renderer, self._img_renderer):
+        for r in (self._renderer, self._img_renderer, *getattr(self, "_sized", {}).values()):
             if r is not None:
                 r.close()
+        self._sized = {}
         self._renderer = self._img_renderer = None

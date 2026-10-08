@@ -14,6 +14,7 @@ class RetargetConfig:
     z_offset: float = 0.0          # pinch point -> fingertip center
     contact_z: float = None        # if set: pinch height (human frame) at grasp/release, used to re-anchor z
     z_min: float = 0.012           # never command the fingertips into the table
+    dwell_s: float = 0.0           # hold the EE still this long before and after each gripper switch
     hz: float = 10.0
     ee_bounds: tuple = ((-0.05, 0.55), (-0.08, 0.42), (0.008, 0.40))
 
@@ -50,4 +51,27 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig()):
     ee = np.column_stack([x, y, np.maximum(z, cfg.z_min)])
     lo = np.array([b[0] for b in cfg.ee_bounds])
     hi = np.array([b[1] for b in cfg.ee_bounds])
-    return np.clip(ee, lo, hi), g, t
+    ee = np.clip(ee, lo, hi)
+    if cfg.dwell_s > 0:
+        ee, g, t = add_dwell(ee, g, int(round(cfg.dwell_s * cfg.hz)), t)
+    return ee, g, t   # t: source (phone) time of each step; repeated during dwells
+
+
+def add_dwell(ee, g, n, t=None):
+    """At every gripper switch, hold the EE where the switch happens for n steps with the old gripper state, then
+    n steps with the new one. The arm settles on the object before closing (the human closes on contact while
+    the arm lags), and the gripper finishes closing/opening before the arm moves on."""
+    t = np.arange(len(g), dtype=float) if t is None else np.asarray(t, float)
+    sw = np.flatnonzero(np.diff(g) != 0) + 1
+    if len(sw) == 0 or n <= 0:
+        return ee, g, t
+    E, G, Ts, prev = [], [], [], 0
+    for k in sw:
+        E += [ee[prev:k], np.repeat(ee[k:k + 1], n, 0), np.repeat(ee[k:k + 1], n, 0)]
+        G += [g[prev:k], np.full(n, g[k - 1]), np.full(n, g[k])]
+        Ts += [t[prev:k], np.full(2 * n, t[k])]
+        prev = k
+    E.append(ee[prev:])
+    G.append(g[prev:])
+    Ts.append(t[prev:])
+    return np.concatenate(E), np.concatenate(G).astype(np.float32), np.concatenate(Ts)
