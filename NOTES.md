@@ -79,3 +79,37 @@ Design decisions, failures and measured numbers. Every number here comes from a 
 - **Seen (red/green) 88.7% [84.6, 91.8]; held out (blue) 0.0% [0.0, 2.5]** (0/150). Per task: red-yellow 0.94, red-purple 0.86, red-orange 0.84, green-yellow 0.96, green-purple 0.86, green-orange 0.86; blue-* 0.00.
 - Held-out is near 0% as intended. Behavior on blue tasks (15 probe episodes): it lifts nothing in 14 and lifts the red cube in 1, never the blue cube. The unseen blue one-hot leaves it with no learned target, so it hovers.
 - Seen-task failures (~11%) are left for later; videos are in `outputs/m3/A/`.
+
+# Phase 2: SmolVLA (see PHASE2_PLAN.md)
+
+## Environment
+- `lerobot[smolvla]==0.4.4` is installed into the same `dcad` env. It caps torch < 2.11, so torch went 2.14.1 → 2.10.0 (and numpy 2.4.6 → 2.2.6). It also pulls `opencv-python-headless`, whose `cv2` has no GUI; the click tools need one, so `opencv-contrib-python` at the **same** version (4.12.0.88) is installed after it (Cocoa GUI, ArUco included). `pip check` is clean and all tests pass after the switch. The pre-switch freeze is kept outside the repo.
+- macOS warns that PyAV's bundled FFmpeg and Homebrew's FFmpeg (loaded by torchcodec) define the same Objective-C classes. No failures observed so far.
+- LeRobot quirk: `SmolVLAPolicy.forward` reads `batch["actions_id_pad"]`, but datasets provide `action_is_pad`, so padded chunk tails are not masked. Padding repeats the episode's last action, so this effectively teaches "hold at the end". Left as in upstream training.
+
+## Image observation (step 1)
+- A single `phone` camera at 256×256 (SmolVLA pads to 512). Render cost is about 7 ms/frame on the Mac.
+- **A straight-down camera doesn't work:** at both 0.75 m and 1.2 m, the arm hides most of the workspace during reach and carry (the elbow fills the middle of the image), and colors wash out under the overhead light. I compared 5 viewpoints at grasp and carry moments. Chosen: **0.95 m up, beyond the far edge, tilted 22° from vertical** (`assets/scene.xml`). All 6 items stay visible, the gripper and target are visible at grasp and place, and colors are correct. This view is rotated 180° compared with the human phone clips (far edge at the bottom), which only matters for stretch goal (c), raw phone frames. One camera looked sufficient on inspection; a wrist camera is deferred until a failure analysis says otherwise.
+- `observation.state` = [EE xyz, gripper width]; action = [EE target xyz, gripper]. No privileged object positions: SmolVLA has to find the cubes in the image. Instruction: "put the <cube> cube in the <zone> zone".
+
+## LeRobot export (step 2)
+- `vla/export_lerobot.py` re-simulates each stored episode from its layout and actions, rendering the camera. Replay fidelity: max |obs − stored obs| = 6e-5 over 18 test episodes. `sigma_n` is a per-frame feature (0 sim, `--phone_sigma` for phone). It's not an `observation.*` key, so SmolVLA never sees it as an input.
+- Video codec H.264 (LeRobot's default is AV1). With 4–8 workers, loading takes about 0.01–0.02 s per batch of 32 with either codec, so data loading is not the bottleneck. Export runs at about 2.7 s/episode.
+
+## Ambient flow matching (step 3)
+- SmolVLA: x_t = t·noise + (1 − t)·actions (t = 1 is pure noise), with t ~ 0.001 + 0.999·Beta(1.5, 1). `vla/ambient.py` draws the same distribution (inverse CDF, so it takes a seeded generator) and maps samples with sigma_n > 0 to t_min + (1 − t_min)·t. The times go in via `SmolVLAPolicy.forward(batch, time=...)`: **no LeRobot source patch**. `--ambient_t_min 0` is off and bit-identical to the default sampler. Tests: `tests/test_ambient_vla.py` (distribution match, off switch, restriction).
+
+## Timing (step 5): Mac, M-series with 18 GB unified memory, MPS
+- Fine-tuning setup as the defaults: frozen vision encoder, `train_expert_only`. Parameter counts: see the 500-step run below.
+- Per training step (profiled with a standalone script on the 18-episode H.264 smoke dataset):
+
+  | micro-batch | forward | backward + AdamW | per sample |
+  |---|---|---|---|
+  | 8 | 0.89 s | 0.21 s | 0.14 s |
+  | 16 | 1.8–2.0 s | 0.40 s | 0.14 s |
+  | 32 | **35–53 s** | 0.9 s | memory thrash (doesn't fit in 18 GB) |
+  | 16, fp32 | 2.4–2.9 s | 0.45 s | fp32 is slower than the mixed bf16 default |
+
+  So the Mac runs at **about 7 samples/s** at micro-batch 16. The forward pass dominates (frozen SigLIP on images padded to 512 px plus the frozen VLM layers). The default is micro-batch 16 × grad_accum 2 (effective 32), about 4.5 s/step, so 500 steps ≈ 38 min.
+- An earlier smoke run at micro-batch 32 measured 24 s/step: that was the memory thrash.
+- A possible speedup if needed: cache frozen image features per frame (64 tokens × 960 dims, fp16 ≈ 123 KB/frame).

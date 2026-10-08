@@ -33,6 +33,9 @@ DEFAULT_SPLIT = "object"
 DEFAULT_HELDOUT = SPLITS[DEFAULT_SPLIT]
 
 OBS_DIM = 19  # ee(3) + gripper width(1) + cubes(3x3) + zones xy(3x2)
+STATE_DIM = 4  # SmolVLA observation.state: ee(3) + gripper width(1); no privileged object positions
+IMAGE_CAMERAS = ("phone",)
+IMAGE_SIZE = 256
 
 
 def task_name(task):
@@ -56,6 +59,11 @@ def resolve_heldout(spec):
         z = ZONES.index(spec.split(":", 1)[1])
         return [(c, z) for c in range(3)]
     return [parse_task(s) for s in spec.split(",")]
+
+
+def instruction(task):
+    """Language instruction for SmolVLA."""
+    return f"put the {CUBES[task[0]]} cube in the {ZONES[task[1]]} zone"
 
 
 def task_onehot(task):
@@ -100,6 +108,7 @@ class PickPlaceEnv:
         self.finger_qadr = [self.m.jnt_qposadr[self.m.joint(j).id] for j in ("finger_joint1", "finger_joint2")]
         self.render_size = render_size
         self._renderer = None
+        self._img_renderer = None
         # Home arm configuration: menagerie "home" keyframe refined by IK to home_ee, pointing down.
         q_key = self.m.key_qpos[0][:7].copy()
         self.ik.q_rest = q_key.copy()
@@ -204,6 +213,20 @@ class PickPlaceEnv:
         released = self.gripper_width() > 2 * self.cfg.cube_half + 0.005
         return bool(inside and resting and released)
 
+    def state(self):
+        """Robot state for SmolVLA: EE position + gripper width."""
+        return np.concatenate([self.ee_pos(), [self.gripper_width()]]).astype(np.float32)
+
+    def images(self, size=IMAGE_SIZE, cameras=IMAGE_CAMERAS):
+        """Image observations {camera: uint8 [size, size, 3]} for SmolVLA."""
+        if self._img_renderer is None:
+            self._img_renderer = mujoco.Renderer(self.m, size, size)
+        out = {}
+        for cam in cameras:
+            self._img_renderer.update_scene(self.d, camera=cam)
+            out[cam] = self._img_renderer.render().copy()
+        return out
+
     # ------------------------------------------------------------------ rendering
     def render(self, camera="top"):
         if self._renderer is None:
@@ -212,6 +235,7 @@ class PickPlaceEnv:
         return self._renderer.render()
 
     def close(self):
-        if self._renderer is not None:
-            self._renderer.close()
-            self._renderer = None
+        for r in (self._renderer, self._img_renderer):
+            if r is not None:
+                r.close()
+        self._renderer = self._img_renderer = None

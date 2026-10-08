@@ -1,8 +1,14 @@
-# Verified to install and import on macOS arm64 (M-series), Python 3.11.
+# Verified to install and import together on macOS arm64 (M-series), Python 3.11, in one env.
+# lerobot 0.4.4 caps torch < 2.11 and pulls opencv-python-headless; opencv-contrib-python at the SAME version is
+# installed after it so cv2 keeps its GUI (needed by the click tools). ArUco is in core OpenCV since 4.7.
+lerobot[smolvla]==0.4.4
+torch==2.10.0
+torchvision==0.25.0
+transformers==4.57.6
 mujoco==3.15.0
-numpy==2.4.6
-torch==2.14.1
-opencv-contrib-python==5.0.0.93
+numpy==2.2.6
+opencv-python-headless==4.12.0.88
+opencv-contrib-python==4.12.0.88
 mediapipe==1.1.0
 imageio[ffmpeg]==2.38.0
 imageio-ffmpeg==0.6.0
