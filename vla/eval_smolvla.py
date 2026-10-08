@@ -20,8 +20,8 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
-from sim.env import (ALL_TASKS, DEFAULT_SPLIT, IMAGE_CAMERAS, PickPlaceEnv, env_config, instruction,  # noqa: E402
-                     resolve_heldout, task_name)
+from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, IMAGE_CAMERAS, ZONES, PickPlaceEnv, env_config,  # noqa: E402
+                     instruction, resolve_heldout, task_name)
 
 
 def to_batch(envs, tasks, dev):
@@ -43,6 +43,9 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None):
     policy.reset()
     tasks = [t for t, _ in jobs]
     streak = np.zeros(len(jobs), int)
+    lifted = np.zeros(len(jobs))                       # max height of the target cube (failure analysis)
+    grasp_err = [None] * len(jobs)                     # EE - target cube offset when the gripper first closes
+    was_open = np.zeros(len(jobs), bool)
     done = np.zeros(len(jobs), bool)
     steps = np.zeros(len(jobs), int)
     frames = {i: [] for i in (record or [])}
@@ -55,15 +58,29 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None):
         for i, e in enumerate(envs):
             if done[i]:
                 continue                     # finished envs are frozen (their actions are ignored)
+            if act[i][3] < 0.5:
+                was_open[i] = True
+            elif was_open[i] and grasp_err[i] is None:
+                grasp_err[i] = (e.ee_pos() - e.cube_pos(tasks[i][0])).tolist()
             _, s = e.step(act[i])
+            lifted[i] = max(lifted[i], e.cube_pos(tasks[i][0])[2])
             steps[i] += 1
             streak[i] = streak[i] + 1 if s else 0
             done[i] = streak[i] >= hold
         if done.all():
             break
-    for e in envs:
+    diag = []
+    for i, e in enumerate(envs):
+        c, z = tasks[i]
+        p = e.cube_pos(c)
+        dz = [float(np.abs(p[:2] - zc).max()) for zc in e.layout["zones"]]
+        others = [j for j in range(3) if j != c and np.linalg.norm(e.cube_pos(j)[:2] - e.layout["cubes"][j]) > 0.03]
+        diag.append({"target_lifted": bool(lifted[i] > 0.035), "nearest_zone": int(np.argmin(dz)),
+                     "in_target_zone": bool(dz[z] <= e.cfg.zone_half), "cube_z": float(p[2]),
+                     "held_at_end": bool(np.linalg.norm(e.ee_pos() - p) < e.cfg.release_dist),
+                     "other_cubes_moved": others, "grasp_offset": grasp_err[i]})
         e.close()
-    return [(bool(d), int(n)) for d, n in zip(done, steps)], frames
+    return [(bool(d), int(n), g) for d, n, g in zip(done, steps, diag)], frames
 
 
 def main():
@@ -77,6 +94,8 @@ def main():
     p.add_argument("--batch_envs", type=int, default=18)
     p.add_argument("--videos", type=int, default=2, help="episodes per task-split to save as video")
     p.add_argument("--out", required=True)
+    p.add_argument("--train_seeds", action="store_true",
+                   help="diagnostic: use the layouts of the training demos (scripts/gen_sim_data.py seeds)")
     p.add_argument("--device", default="auto")
     a = p.parse_args()
     dev = pick_device(a.device)
@@ -96,7 +115,9 @@ def main():
         load_trainable(policy, cks[step])
     policy.eval()
     tasks = {"all": ALL_TASKS, "seen": [t for t in ALL_TASKS if t not in heldout], "heldout": heldout}[a.tasks]
-    jobs = [(t, EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000 + k) for t in tasks for k in range(a.k)]
+    base = (lambda t: ALL_TASKS.index(t) * 100_000) if a.train_seeds else \
+        (lambda t: EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000)
+    jobs = [(t, base(t) + k) for t in tasks for k in range(a.k)]
     print(f"{a.run} step {step} on {dev}: {len(jobs)} episodes, held-out = {[task_name(t) for t in heldout]}")
     rows, t0 = [], time.time()
     vid_left = {"seen": a.videos, "heldout": a.videos}
@@ -110,8 +131,8 @@ def main():
                 rec.append(j)
                 vid_left[sp] -= 1
         res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg)
-        for (t, s), (ok, n) in zip(chunk, res):
-            rows.append((t, s, ok, n))
+        for (t, s), (ok, n, g) in zip(chunk, res):
+            rows.append((t, s, ok, n, g))
         for j, fr in frames.items():
             t, s = chunk[j]
             ok = res[j][0]
@@ -120,9 +141,11 @@ def main():
         print(f"{len(rows)}/{len(jobs)} episodes, {time.time() - t0:.0f}s", flush=True)
     with open(os.path.join(a.out, "episodes.csv"), "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["task", "seed", "success", "steps"])
-        for t, s, ok, n in rows:
-            w.writerow([task_name(t), s, int(ok), n])
+        w.writerow(["task", "seed", "success", "steps", "target_lifted", "in_target_zone", "nearest_zone",
+                    "held_at_end", "other_cubes_moved"])
+        for t, s, ok, n, g in rows:
+            w.writerow([task_name(t), s, int(ok), n, int(g["target_lifted"]), int(g["in_target_zone"]),
+                        ZONES[g["nearest_zone"]], int(g["held_at_end"]), "|".join(CUBES[j] for j in g["other_cubes_moved"])])
     per = {t: [r[2] for r in rows if r[0] == t] for t in tasks}
     summary = {"run": a.run, "step": step, "k": a.k, "n_action_steps": a.n_action_steps,
                "heldout_tasks": [task_name(t) for t in heldout], "eval_seconds": time.time() - t0,
@@ -135,6 +158,20 @@ def main():
             print(f"{split:8s} {m:.3f}  95% CI [{lo:.3f}, {hi:.3f}]  (n={len(v)})")
     for t in tasks:
         print(f"  {task_name(t):14s} {np.mean(per[t]):.2f}")
+    # failure analysis
+    fails = [r for r in rows if not r[2]]
+    if fails:
+        g = [r[4] for r in fails]
+        fa = {"n_fail": len(g), "target_lifted": float(np.mean([x["target_lifted"] for x in g])),
+              "wrong_cube_moved": float(np.mean([bool(x["other_cubes_moved"]) for x in g])),
+              "ended_in_target_zone": float(np.mean([x["in_target_zone"] for x in g])),
+              "still_held_at_end": float(np.mean([x["held_at_end"] for x in g]))}
+        go = np.array([x["grasp_offset"] for x in g if x["grasp_offset"] is not None])
+        if len(go):
+            fa.update(grasp_xy_err_cm_median=float(np.median(np.linalg.norm(go[:, :2], axis=1)) * 100),
+                      grasp_z_above_cube_cm_median=float(np.median(go[:, 2]) * 100), n_grasps=len(go))
+        summary["failure_analysis"] = fa
+        print("failures:", {k: round(v, 2) for k, v in fa.items()})
     with open(os.path.join(a.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
 
