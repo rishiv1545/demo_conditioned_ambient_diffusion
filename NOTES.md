@@ -1,0 +1,49 @@
+# NOTES: running log
+
+Design decisions, failures and measured numbers. Every number here comes from a script in the repo.
+
+## Platform (changed 2026-10-08)
+- **Main path is local**: MacBook with M4 Pro (macOS 26, arm64, 12 cores). Conda env `dcad` with Python 3.11 (a plain venv works too; see the README). Colab is now only a one-click reproduction notebook for reviewers (`colab/run_all.ipynb`: sets `MUJOCO_GL=egl`, trains on cuda). Previously the plan had training and evaluation on a Colab T4.
+- `requirements.txt` pins exactly what installed and imported on macOS arm64: mujoco 3.15.0, torch 2.14.1, mediapipe 1.1.0, opencv-contrib-python 5.0.0.93, numpy 2.4.6, scipy 1.17.1, matplotlib 3.11.2, imageio 2.38.0 (+ imageio-ffmpeg 0.6.0), tqdm 4.70.1, pytest 9.1.1.
+- Device: `--device auto` picks cuda → mps → cpu. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set in train/evaluate.
+- **MPS vs CPU timing** (`policy/train.py`, 300 steps, batch 256, 4.82M params, 2-frame obs, 120 sim episodes): **mps 17 s (57 ms/step), cpu 259 s (860 ms/step)**. MPS is about 15× faster, so `auto` (→ mps) stays the default on the Mac. 20k steps take about 18–19 min on MPS, inside the 30-minute target.
+- Rendering: `MUJOCO_GL=egl` is set only on Linux (`sim/env.py`); macOS uses MuJoCo's default offscreen (CGL) renderer.
+- Multiprocessing: all pools use the `spawn` context explicitly (same behavior on macOS and Linux). Worker functions are module-level and scripts are `__main__`-guarded. `--workers` defaults to cores − 2.
+- Evaluation runs the policy on CPU in each worker (1 torch thread per worker): batch-1 inference on a small U-Net. That's cheaper than shipping observations to one MPS process.
+
+## Milestone 0
+- `scripts/make_markers.py` → `assets/markers.pdf`: DICT_4X4_50, IDs 0–3, 6 cm (the black square including the 1-bit border), two per A4 page. Checked by rasterizing the pages and re-detecting them with cv2.aruco: all 4 detected, measured side ≈ 5.97–5.98 cm at 100 dpi.
+- Table frame convention (shared by sim and human): origin at the center of marker 0 (near-left), +x toward marker 1 (near-right, 50 cm), +y toward marker 3 (far-left, 35 cm). HOME is near-right. The sim world frame **is** this table frame (z = 0 at the table top), so retargeting is the identity plus optional offsets.
+- The calibration is two separate clips (`calib_table.mp4`, `calib_box.mp4`) rather than one clip that has to be segmented. It's simpler and more robust.
+
+## Milestone 1: sim
+- **Why a custom MuJoCo scene + menagerie Panda (not LIBERO/robosuite):** the task family needs full control of objects, zones, randomization and replaying human layouts, plus fast headless rollouts on a laptop CPU. A 1-file scene with direct MuJoCo calls is simpler than adapting a benchmark.
+- Vendored `mujoco_menagerie/franka_emika_panda` (Apache-2.0; LICENSE kept). `panda.xml` is **modified**: meshdir relative to `assets/scene.xml`, base pose on link0, `ee` site at the fingertip center (0.1034 m below the hand). Unused menagerie files removed.
+- **Robot base at (0.25, −0.30, 0), facing +y.** At first it was at y = −0.20, and the expert failed when a cube sat right in front of the base (x≈0.25, y≈0.04): joint 4 hit its fold limit (−3.07 rad), leaving 13 cm of error. Moving the base back 10 cm makes the whole workspace reachable top-down: worst error 3.2 mm over a grid including 2 cm outside the rectangle, z = 0.018.
+- **Gravity compensation**: the menagerie position actuators sagged 5–10 mm under gravity. I added `qfrc_applied = qfrc_bias` on the arm joints each substep (the real Panda does gravity compensation internally). Tracking error at hold dropped to 0.05 mm, and to under 2 mm after 4 s moves to the far corners.
+- Control: 10 Hz, physics dt 0.002 s → 50 substeps; joint targets are linearly interpolated across substeps. IK is damped least squares (λ = 0.05) on the `ee` site's position + orientation (pointing down, fingers opening along x), 15 iterations per control step from the current q, with a nullspace pull toward the home posture. The EE target moves at most 5 cm per step (0.5 m/s).
+- Gripper: menagerie tendon actuator, stiffened from kp = 100 to kp = 400 (force ≈ 8 N on a 4 cm cube versus 2 N by default). Cubes 4 cm, 50 g, friction 1.5, condim 4, elliptic cones, impratio 10. With these values grasps never slipped in 900 test episodes.
+- Layout sampling: zones Chebyshev ≥ 12 cm apart, cubes ≥ 9 cm apart (Euclidean), cubes Chebyshev ≥ 9 cm from every zone center (a cube never starts in a zone).
+- Success: the target cube center lies within the target zone square (|dx|, |dy| ≤ 5 cm), the cube center is below 2.5 cm (resting), and the gripper width is over 4.5 cm (released).
+- Expert: an open-loop waypoint plan made at reset (hover → descend → close 0.5–0.7 s → lift → move → descend → open → retreat). Randomized speed 0.15–0.3 m/s, slower descents, hover heights 7–13 / 9–15 cm, ±4 mm grasp jitter, ±12 mm placement jitter, random 0.05–0.3 s pauses.
+- **Results** (`scripts/eval_expert.py --n 100`, seeds 500000+): **100/100 success on every one of the 9 tasks (900/900)**, 28 s with 12 workers. Headless speed: 457 control steps/s single process (a 200-step rollout takes 0.44 s). Videos: `outputs/m1/expert_*.mp4` (front + top view).
+- Rendering colors: the first lighting washed out orange to yellow and purple to pink, so I reduced the headlight and directional light and darkened orange and purple.
+- Data: `scripts/gen_sim_data.py --n_per_task 50 --tasks all` → 450 successful episodes in 17 s (each episode is about 60–90 steps). Training takes the first `--sim_per_task` (default 20) per task. Held-out-task sim data exists only for an optional oracle run; baselines A/B/B′ never load it.
+
+## Milestone 2: phone pipeline (code ready, waiting on real clips)
+- Homography: per-frame ArUco centers → gaps linearly interpolated → 9-frame temporal median → per-frame `getPerspectiveTransform`. Marker table coordinates come from the 4 measured sides + 2 diagonals (circle intersections).
+- Height: the hand size is measured **in table-plane meters** (landmarks mapped through the homography), which removes camera tilt and lens position from the scale. Size = mean(wrist→middle MCP, index MCP→pinky MCP). z = H·(1 − s₀/s), with s₀ from `calib_table`. `calib_box` gives the reported height error. xy gets a parallax correction toward the table point under the image center.
+- Gripper: aperture = |thumb tip − index tip| / hand size, hysteresis close < 0.65 / open > 0.9, then a 0.2 s minimum-duration filter. Thresholds are set from geometry (a pinched 4 cm cube ≈ 0.5, a spread hand > 1.2) and will be tuned on real clips.
+- Objects: HSV thresholds on the warped first frame (largest blob ≥ 4 cm² per color). Cube centroids are parallax-corrected for z = 2 cm. The last frame is checked to label whether the human completed the task.
+- Retarget: 1:1, zero xy offset, `z_offset` (default 0), z ≥ 1.2 cm, resampled to 10 Hz. Replay starts the arm at the first retargeted point, runs open-loop and appends 5 hold steps. Failures are kept and flagged (`success=False`).
+- Videos are downscaled to 960 px wide on read (a 15 s 1080p clip would take about 3 GB of RAM).
+- Tests on synthetic inputs (`tests/test_human.py`): a perspective-warped canvas with markers and colored squares (objects recovered within 6 mm), height/parallax round-trip, gripper cleanup, gap filling, and an expert path turned into a "human" one (30 fps, 2–3 mm noise, gripper 0.1 s late) whose retarget and replay succeed. **Not yet run on real hand video.**
+
+## Milestone 3: policy
+- 1D temporal U-Net (Chi et al. style), dims (64, 128, 256), kernel 5, GroupNorm, Mish, FiLM from [cond, timestep embedding]: **4.82M params**. Action chunk H = 16, run 8 actions then re-plan. Observation history of 2 frames.
+- `ConditionEncoder` interface. Phase 1 `ObsTaskEncoder`: separate MLPs for the observation (2×19 → 128) and the task one-hot (6 → 64), concatenated.
+- Hand-rolled DDPM: T = 100, cosine schedule, ε-prediction; DDIM with 10 steps (η = 0, x0 clipped to [−1, 1]). `loss(model, x0, cond, t_min=None)` has the per-sample t_min hook.
+- Normalization: per-dimension min/max → [−1, 1] from the training set, stored in the checkpoint. Observation stats are per frame.
+- Training: AdamW lr 3e-4, wd 1e-4, 500-step warmup + cosine, batch 256, grad clip 1, EMA 0.999, 20k steps. The whole dataset is held as tensors on the device.
+- Evaluation: 50 episodes per task on fixed seeds (1,000,000 + task·10,000 + k), never used for data. Success = `env.success()` holds for 5 consecutive control steps (stable placement and release), else failure at 200 steps (20 s). Wilson 95% CIs on the pooled seen and held-out rates.
+- Bug found: the eval runner normalized the stacked 2-frame observation with per-frame stats (shape error). Fixed by normalizing each frame.
