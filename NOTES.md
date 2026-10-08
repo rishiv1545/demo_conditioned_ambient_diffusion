@@ -85,7 +85,7 @@ Design decisions, failures and measured numbers. Every number here comes from a 
 ## Environment
 - `lerobot[smolvla]==0.4.4` is installed into the same `dcad` env. It caps torch < 2.11, so torch went 2.14.1 → 2.10.0 (and numpy 2.4.6 → 2.2.6). It also pulls `opencv-python-headless`, whose `cv2` has no GUI; the click tools need one, so `opencv-contrib-python` at the **same** version (4.12.0.88) is installed after it (Cocoa GUI, ArUco included). `pip check` is clean and all tests pass after the switch. The pre-switch freeze is kept outside the repo.
 - macOS warns that PyAV's bundled FFmpeg and Homebrew's FFmpeg (loaded by torchcodec) define the same Objective-C classes. No failures observed so far.
-- LeRobot quirk: `SmolVLAPolicy.forward` reads `batch["actions_id_pad"]`, but datasets provide `action_is_pad`, so padded chunk tails are not masked. Padding repeats the episode's last action, so this effectively teaches "hold at the end". Left as in upstream training.
+- **Fixed: LeRobot padding-key mismatch.** `SmolVLAPolicy.forward` reads `batch["actions_id_pad"]` (sic), but datasets provide `action_is_pad`, so upstream training never masks padded chunk tails (copies of the episode's last action) out of the loss. `vla/train_smolvla.py` sets `batch["actions_id_pad"] = batch["action_is_pad"]` after preprocessing, so padded tails are now masked. `tests/test_feature_cache.py` checks that `action_is_pad` matches LeRobot's on a padded sample.
 
 ## Image observation (step 1)
 - A single `phone` camera at 256×256 (SmolVLA pads to 512). Render cost is about 7 ms/frame on the Mac.
@@ -113,3 +113,24 @@ Design decisions, failures and measured numbers. Every number here comes from a 
   So the Mac runs at **about 7 samples/s** at micro-batch 16. The forward pass dominates (frozen SigLIP on images padded to 512 px plus the frozen VLM layers). The default is micro-batch 16 × grad_accum 2 (effective 32), about 4.5 s/step, so 500 steps ≈ 38 min.
 - An earlier smoke run at micro-batch 32 measured 24 s/step: that was the memory thrash.
 - A possible speedup if needed: cache frozen image features per frame (64 tokens × 960 dims, fp16 ≈ 123 KB/frame).
+
+## Frozen-vision-feature cache (`vla/feature_cache.py`)
+- Valid because `train_expert_only=True` freezes the **whole** VLM, including SigLIP and the connector, and we use no image augmentation. Cached: `embed_image(resize_with_pad_512(img)·2 − 1)` per frame, fp16, 64 tokens × 960 dims. Everything after it (√dim scaling, language/state tokens, VLM layers, expert) runs live. `use_cached_features(policy)` patches only that policy instance; **eval always uses raw images**. `--features raw` trains from raw images (needed for the stretch goal's image prompts).
+- **Equivalence test** (`tests/test_feature_cache.py`, CPU fp32): the loss from cached features matches raw images under identical noise and time (rtol 2e-3), and the cached dataset reproduces LeRobot's state, action chunk, `action_is_pad` and task.
+- **Cache size:** 24,211 frames → **2.98 GB** (2.8 GiB). It's built once per dataset and backbone dtype. On MPS the build took **2429 s (40 min)**, about 10 frames/s for SigLIP at 512 px. It's not uploaded to the Hub (it's dtype-specific); the Colab notebook keeps it on Drive.
+- **Time per step on MPS** (micro-batch 16 × grad_accum 2 = effective 32, sim_seen):
+
+  | | s/step | 500 steps |
+  |---|---|---|
+  | raw images (100 steps measured, steady) | 4.8 | 40 min |
+  | **cached features** (100 steps; first 25 slower while the memmap pages in) | **1.33** | **11 min** |
+
+  **3.6× faster.** The cache build (40 min) pays for itself after about 700 steps.
+- **Eval cost** (raw images, 18 envs batched, `n_action_steps=10`): 18 episodes that all ran 200 steps took 115 s, so ≤ 6.4 s/episode. 20 episodes/task ≈ 19 min and 50/task ≈ 48 min at most (successes end early).
+
+## Backbone dtype on GPUs without bf16 (`vla/common.py: resolve_dtype`)
+- `--dtype auto` keeps SmolVLA's default (bf16 backbone) on MPS and Ampere+ CUDA, and casts the whole policy to **fp32** on CUDA without bf16 (T4) or on CPU. A full fp16 cast is not offered: the backbone was trained in bf16 (fp16 can overflow), and fp32 inputs such as the state would then hit fp16 layers. Not yet run on a T4; that's the user's Colab timing check.
+
+## V0 overnight plan (Mac)
+- `scripts/run_v0_mac.sh` (under `caffeinate -i`): 5000 steps from the cache (≈ 1.9 h), 20-episode/task evals every 1000 steps (≤ 1.6 h), then a final 50-episode/task eval of the best-by-seen checkpoint (≤ 48 min): ≈ 4.5 h. Training resumes and finished evals are skipped on re-run. Started 2026-10-08.
+- Projection for V1/V2 on Colab: pending the user's T4 timing. On the Mac, each would take about as long as V0 (the phone data adds ≈ 15% frames, plus building its cache).
