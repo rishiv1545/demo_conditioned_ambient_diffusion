@@ -47,3 +47,16 @@ def test_expert_fixed_seed():
     r = run_expert_episode(env, (2, 0), seed=123)
     assert r["success"]
     assert r["obs"].shape[1] == OBS_DIM and r["action"].shape[1] == 4
+
+
+def test_object_split_blue_is_distractor():
+    from sim.env import DEFAULT_SPLIT, SPLITS, resolve_heldout
+    assert DEFAULT_SPLIT == "object" and resolve_heldout("object") == [(2, 0), (2, 1), (2, 2)]
+    assert resolve_heldout("combo") == SPLITS["combo"]
+    env = PickPlaceEnv()
+    for task in [(0, 1), (1, 2)]:          # seen tasks: blue cube present, on the table, never moved
+        r = run_expert_episode(env, task, seed=5)
+        blue = r["obs"][:, 10:13]
+        assert r["success"]
+        assert np.allclose(blue[:, 2], 0.02, atol=2e-3)
+        assert np.abs(blue[:, :2] - blue[0, :2]).max() < 2e-3

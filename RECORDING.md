@@ -80,11 +80,13 @@ File name: `<object>-<patch>_<NN>.mp4` using the **task names**, e.g. `red-yello
 
 | Task | Clips | | Task | Clips | | Task | Clips |
 |---|---|---|---|---|---|---|---|
-| **red-yellow** (held-out) | **8** | | red-purple | 4 | | red-orange | 4 |
-| green-yellow | 4 | | **green-purple** (held-out) | **8** | | green-orange | 4 |
-| blue-yellow | 4 | | blue-purple | 4 | | **blue-orange** (held-out) | **8** |
+| red-yellow | 4 | | red-purple | 4 | | red-orange | 4 |
+| green-yellow | 4 | | green-purple | 4 | | green-orange | 4 |
+| **blue-yellow** (held out) | **8** | | **blue-purple** (held out) | **8** | | **blue-orange** (held out) | **8** |
 
-**48 clips in total.** If a clip goes wrong (the object is dropped, a marker gets covered), just re-record it under the same name. You don't need to keep the bad one.
+**48 clips in total**: 4 for each of the 6 red and green tasks (24) and 8 for each of the 3 blue tasks (24). The **"blue" object is held out**: the robot never sees it moved in simulation, so your clips are the only demonstrations of it. Record the blue tasks with extra care. The blue object still stays on the table in **every** clip as a distractor, as do all the others.
+
+If a clip goes wrong (the object is dropped, a marker gets covered), just re-record it under the same name. You don't need to keep the bad one.
 
 ## 6. Tips
 

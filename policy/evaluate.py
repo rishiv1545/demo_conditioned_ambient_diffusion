@@ -22,7 +22,7 @@ import torch  # noqa: E402
 
 from policy.data import Normalizer  # noqa: E402
 from policy.diffusion import Diffusion  # noqa: E402
-from sim.env import ALL_TASKS, DEFAULT_HELDOUT, PickPlaceEnv, parse_task, task_name, task_onehot  # noqa: E402
+from sim.env import ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, resolve_heldout, task_name, task_onehot  # noqa: E402
 
 EVAL_SEED_BASE = 1_000_000
 
@@ -109,11 +109,13 @@ def main():
     p.add_argument("--n_exec", type=int, default=8)
     p.add_argument("--ddim_steps", type=int, default=10)
     p.add_argument("--hold", type=int, default=5)
-    p.add_argument("--heldout", default=",".join(task_name(t) for t in DEFAULT_HELDOUT))
+    p.add_argument("--heldout", default=None, help="split spec; default: the split the checkpoint was trained with")
     p.add_argument("--videos", type=int, default=3, help="successes and failures to render (each)")
     a = p.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    heldout = [parse_task(s) for s in a.heldout.split(",")]
+    spec = a.heldout or torch.load(a.ckpt, map_location="cpu", weights_only=False)["args"].get("heldout", DEFAULT_SPLIT)
+    heldout = resolve_heldout(spec)
+    print("held-out tasks:", [task_name(t) for t in heldout])
     jobs = [(t, EVAL_SEED_BASE + ti * 10_000 + k, a.hold) for ti, t in enumerate(ALL_TASKS) for k in range(a.k)]
     t0 = time.time()
     rows = []
@@ -141,6 +143,7 @@ def main():
         summary[split] = {"success": m, "ci95": [lo, hi], "n": len(v)}
         print(f"{split:8s} {m:.3f}  95% CI [{lo:.3f}, {hi:.3f}]  (n={len(v)})")
     summary["ckpt"] = a.ckpt
+    summary["heldout_tasks"] = [task_name(t) for t in heldout]
     with open(os.path.join(a.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
 

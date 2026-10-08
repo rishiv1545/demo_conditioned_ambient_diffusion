@@ -22,7 +22,7 @@ import torch  # noqa: E402
 from policy.data import ChunkDataset, DataConfig, load_episodes, norm_state  # noqa: E402
 from policy.diffusion import Diffusion  # noqa: E402
 from policy.model import ObsTaskEncoder, Policy  # noqa: E402
-from sim.env import ALL_TASKS, DEFAULT_HELDOUT, OBS_DIM, parse_task, task_name  # noqa: E402
+from sim.env import ALL_TASKS, DEFAULT_SPLIT, OBS_DIM, parse_task, resolve_heldout, task_name  # noqa: E402
 
 
 @dataclass
@@ -37,6 +37,7 @@ class TrainConfig:
     horizon: int = 16
     n_obs: int = 2
     dims: tuple = (64, 128, 256)
+    bilinear: int = 1       # 1: add task x obs outer-product features to the condition encoder
     seed: int = 0
 
 
@@ -59,13 +60,13 @@ def sim_task_list(spec, heldout):
 
 
 def build_policy(cfg: TrainConfig):
-    enc = ObsTaskEncoder(OBS_DIM * cfg.n_obs)
+    enc = ObsTaskEncoder(OBS_DIM * cfg.n_obs, bilinear=bool(cfg.bilinear))
     return Policy(enc, act_dim=4, dims=tuple(cfg.dims))
 
 
 def load_policy(ckpt_path, device="cpu"):
     ck = torch.load(ckpt_path, map_location=device, weights_only=False)
-    cfg = TrainConfig(**ck["cfg"])
+    cfg = TrainConfig(**{"bilinear": 0, **ck["cfg"]})  # checkpoints before the bilinear option were concat-only
     pol = build_policy(cfg).to(device)
     pol.load_state_dict(ck["ema"])
     pol.eval()
@@ -79,7 +80,7 @@ def main():
     p.add_argument("--sources", default="sim", help="comma list of sources: sim,human")
     p.add_argument("--sim_tasks", default="seen", help="tasks to use sim demos for: seen | all | comma list")
     p.add_argument("--human_tasks", default="all", help="tasks to use human demos for: seen | all | comma list")
-    p.add_argument("--heldout", default=",".join(task_name(t) for t in DEFAULT_HELDOUT))
+    p.add_argument("--heldout", default=DEFAULT_SPLIT, help="object | combo | object:<cube> | zone:<zone> | task list")
     p.add_argument("--include_failed", type=int, default=1, help="keep failed human replays (1) or drop them (0)")
     p.add_argument("--sim_per_task", type=int, default=20)
     p.add_argument("--device", default="auto")
@@ -93,7 +94,7 @@ def main():
     np.random.seed(cfg.seed)
     dev = pick_device(a.device)
 
-    heldout = [parse_task(s) for s in a.heldout.split(",")]
+    heldout = resolve_heldout(a.heldout)
     sources = a.sources.split(",")
     eps = []
     if "sim" in sources:

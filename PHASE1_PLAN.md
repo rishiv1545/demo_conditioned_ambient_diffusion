@@ -68,7 +68,8 @@ Design this carefully, because Phase 2's in-context experiments depend on it.
 - **Task = (cube c, zone z)**: pick cube c and place it in zone z. That makes 9 tasks.
 - Cube and zone positions are randomized each episode inside a workspace rectangle (start with 50 × 35 cm), with minimum spacing so nothing overlaps.
 - **Success:** at the end of the episode, the target cube's center lies inside the target zone, the cube rests on the table, and the gripper has released it.
-- **Held-out split:** clean sim demos exist for only 6 of the 9 tasks. Hold out 3 tasks chosen so that each cube and each zone still appears in some seen task (a Latin-square pattern, e.g. (red, yellow), (green, purple), (blue, orange)). Phone demos cover all 9 tasks, with extra demos for the held-out ones. This is what makes the phone data matter: it is the only source for the held-out tasks.
+- **Held-out split (by object):** clean sim demos exist for only 6 of the 9 tasks. The **blue cube is held out**: it is never the target in a sim demo, so the seen tasks are the 6 red and green tasks and the held-out tasks are blue-yellow, blue-purple and blue-orange. The blue cube is still present in every sim scene as a distractor, so the observation is unchanged and the policy sees it, just never as the target. Phone demos cover all 9 tasks, with extra demos for the blue ones. This is what makes the phone data matter: it is the only source for the held-out tasks.
+- The split is configurable (`--heldout object | combo | object:<cube> | zone:<zone> | task list`). The original combination split (a Latin square, e.g. (red, yellow), (green, purple), (blue, orange)) remains as the `combo` option. **Finding:** with factored task conditioning, a sim-only policy composes held-out combinations for free (100% held-out success), so combinations can't motivate phone data. This is recorded in `NOTES.md`.
 - Make the split configurable, and make the number of sim demos per task configurable (low-data regimes such as 5, 10 or 20 per task matter for later ablations).
 
 ## Milestone 0: Recording protocol (do this first)
@@ -81,7 +82,7 @@ The human needs to record phone demos while you build the sim. Before any other 
    - **Camera:** the phone looks roughly straight down from 60–90 cm (no-purchase mounts: taped under a shelf, a broom handle across two chairs, or, as a last resort, a tall book stack at an angle). Mount it rigidly, use landscape orientation, 1080p at 30 fps, and lock focus and exposure. Write down the camera height. All 4 markers must be visible throughout.
    - **A calibration clip at the start of each session:** about 3 s with the hand resting flat on the table at a "home" spot (the bottom-right corner, say), then about 3 s with the hand held still on top of a box of known, measured height. This calibrates the height estimate.
    - **Each demo clip:** start with the hand at home, pick up the specified cube using a thumb–index pinch from above, place it in the specified zone, release, and return home. Keep each clip to about 5–15 s. Randomize cube and zone positions between clips.
-   - **How many:** 4 demos per seen task (24) plus 8 per held-out task (24), 48 in total. The file name encodes the task, e.g. `red-yellow_03.mp4`.
+   - **How many:** 4 demos for each of the 6 red and green tasks (24) plus 8 for each of the 3 blue (held-out) tasks (24), 48 in total. The file name encodes the task, e.g. `red-yellow_03.mp4`.
    - **Tips:** good even lighting, no other red, green or blue clutter in view, and a long sleeve is fine but keep the hand itself uncovered.
    - Where to put the files: `data/raw_phone/<session_name>/` on the Mac, along with `session.json` containing the camera height, the rectangle measurements and the calibration box height.
 
@@ -156,7 +157,7 @@ Build it in this order, with a debug visual at every step. Develop against the f
 
 **Model (`policy/model.py`, `policy/diffusion.py`):**
 - Predicts an action chunk of horizon H = 16 at 10 Hz; at execution, run the first 8 actions, then re-plan.
-- Conditioning: the current observation (optionally the last 2 frames) plus the 6-dimensional task vector, embedded by an MLP and injected with FiLM.
+- Conditioning: the current observation (optionally the last 2 frames) plus the 6-dimensional task vector, embedded by an MLP and injected with FiLM. The encoder also has an MLP over the outer product task ⊗ obs (`--bilinear 1`, the default for baselines). A plain concat encoder never learned to select the named cube's coordinates (see `NOTES.md`).
 - Network: a small 1D temporal U-Net (Chi et al.'s Diffusion Policy style), or a small transformer over the action tokens. Pick one and keep it at about 1–5M parameters.
 - **Hand-roll DDPM** (about 100 training steps, cosine schedule, ε-prediction) **with DDIM sampling** (10 steps). Do not use `diffusers`: Phase 2 has to modify the loss per sample, and a hand-rolled implementation is short and transparent.
 - Normalize observations and actions to [-1, 1] using statistics from the training set; save the statistics with the checkpoint.
@@ -176,7 +177,7 @@ Build it in this order, with a debug visual at every step. Develop against the f
 - **B′ — B with only successful human replays.**
 - Report all three in one table: seen-task success and held-out-task success. Generate a bar chart with `scripts/make_figures.py`.
 
-The expected outcome: A does well on seen tasks and poorly on held-out ones, while B and B′ give some held-out success but may hurt seen-task performance because of noisy data. Whatever happens, report it honestly. This gap is what Phase 2 attacks.
+The expected outcome: A does well on seen tasks and near 0% on the held-out blue tasks (confirm this; if it isn't near 0%, find out why before going further), while B and B′ give some held-out success but may hurt seen-task performance because of noisy data. Whatever happens, report it honestly. This gap is what Phase 2 attacks.
 
 **Acceptance criteria:** the three runs are trained and evaluated locally, and the table, the plot and example videos exist in `outputs/m3/`. The Colab notebook reproduces A end to end from a fresh runtime.
 

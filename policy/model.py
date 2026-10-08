@@ -20,16 +20,23 @@ def mlp(i, h, o):
 
 
 class ObsTaskEncoder(ConditionEncoder):
-    """Observation and task are encoded by separate MLPs and concatenated."""
+    """Observation and task are encoded by separate MLPs and concatenated. With bilinear=True a third MLP sees the
+    outer product task x obs, which gives the network linear access to "the coordinates of the object the task
+    names" (selection is multiplicative, which a concat-MLP has to learn from scratch; see NOTES.md)."""
 
-    def __init__(self, obs_dim, task_dim=6, obs_emb=128, task_emb=64):
+    def __init__(self, obs_dim, task_dim=6, obs_emb=128, task_emb=64, bilinear=False, bil_emb=128):
         super().__init__()
         self.obs_enc = mlp(obs_dim, 256, obs_emb)
         self.task_enc = mlp(task_dim, 64, task_emb)
-        self.cond_dim = obs_emb + task_emb
+        self.bil_enc = mlp(obs_dim * task_dim, 256, bil_emb) if bilinear else None
+        self.cond_dim = obs_emb + task_emb + (bil_emb if bilinear else 0)
 
     def forward(self, batch):
-        return torch.cat([self.obs_enc(batch["obs"]), self.task_enc(batch["task"])], -1)
+        o, t = batch["obs"], batch["task"]
+        parts = [self.obs_enc(o), self.task_enc(t)]
+        if self.bil_enc is not None:
+            parts.append(self.bil_enc((t.unsqueeze(-1) * o.unsqueeze(-2)).flatten(1)))
+        return torch.cat(parts, -1)
 
 
 # ---------------------------------------------------------------------------- U-Net

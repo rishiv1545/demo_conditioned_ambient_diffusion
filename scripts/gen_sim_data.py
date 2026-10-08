@@ -10,7 +10,7 @@ from multiprocessing import get_context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from policy.data import save_episode  # noqa: E402
-from sim.env import ALL_TASKS, DEFAULT_HELDOUT, PickPlaceEnv, parse_task, task_name  # noqa: E402
+from sim.env import ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, parse_task, resolve_heldout, task_name  # noqa: E402
 from sim.expert import run_expert_episode  # noqa: E402
 
 DATA_SEED_BASE = 0  # data seeds: task_index * 100_000 + k; eval seeds live at >= 1_000_000
@@ -51,10 +51,10 @@ def main():
     p.add_argument("--out", default="data/sim")
     p.add_argument("--n_per_task", type=int, default=20)
     p.add_argument("--tasks", default="seen", help="seen | heldout | all | comma list like red-yellow,blue-orange")
-    p.add_argument("--heldout", default=",".join(task_name(t) for t in DEFAULT_HELDOUT))
+    p.add_argument("--heldout", default=DEFAULT_SPLIT, help="object | combo | object:<cube> | zone:<zone> | task list")
     p.add_argument("--workers", type=int, default=max(1, os.cpu_count() - 2))
     a = p.parse_args()
-    heldout = [parse_task(s) for s in a.heldout.split(",")]
+    heldout = resolve_heldout(a.heldout)
     tasks = select_tasks(a.tasks, heldout)
     os.makedirs(a.out, exist_ok=True)
     with get_context("spawn").Pool(min(a.workers, len(tasks))) as pool:

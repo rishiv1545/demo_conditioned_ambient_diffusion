@@ -54,3 +54,21 @@ Design decisions, failures and measured numbers. Every number here comes from a 
 - Training: AdamW lr 3e-4, wd 1e-4, 500-step warmup + cosine, batch 256, grad clip 1, EMA 0.999, 20k steps. The whole dataset is held as tensors on the device.
 - Evaluation: 50 episodes per task on fixed seeds (1,000,000 + task·10,000 + k), never used for data. Success = `env.success()` holds for 5 consecutive control steps (stable placement and release), else failure at 200 steps (20 s). Wilson 95% CIs on the pooled seen and held-out rates.
 - Bug found: the eval runner normalized the stacked 2-frame observation with per-frame stats (shape error). Fixed by normalizing each frame.
+
+### Experiment log (Milestone 3)
+- **A, 20 sim demos/task (120 episodes), 20k steps** (`checkpoints/A`): training took 1077 s on MPS (18 min), final loss 0.0019. Evaluation (`outputs/m3/A`, 50 eps/task, 71 s with 10 workers): **seen 1.0% [0.3, 2.9], held-out 0.7% [0.1, 3.7]**.
+  - Diagnosis: closed-loop on **training layouts** (15 episodes) it scores **100%**. Offline, its chunk predictions on training samples match the demos to within a few mm and barely change when the task one-hot is swapped. It memorized layout → trajectory and never learned "go to the cube named by the task". In videos with new layouts it confidently picks some cube and places it somewhere in between zones.
+  - Next: the same model with 200 demos/task (1200 episodes) to test whether data volume alone fixes it.
+- **A, 200 sim demos/task (1200 episodes), concat encoder, 20k steps** (`checkpoints/A_n200`): 1072 s, final loss 0.0153. **Seen 1.7% [0.7, 3.8], held-out 0.0% [0, 2.5]**. Ten times the data didn't help, so memorization wasn't the root cause.
+  - Failure mode, 12 closed-loop episodes on new layouts: the gripper closes 0.6–24 cm away from the target cube; in 11 of 12 nothing is lifted.
+  - Probe: shifting the target cube 10 cm in the observation moves the predicted chunk endpoint by only 0.3–2.5 cm, and swapping the task one-hot barely changes it. At t = 0 the predicted reach point is roughly the mean of the three cubes. The concat encoder never learned the multiplicative "select the coordinates of the cube named by the one-hot".
+  - Fix: `ObsTaskEncoder(bilinear=True)` adds an MLP over the outer product task ⊗ obs (6 × 38 = 228 features), so the selected object's coordinates are linear in the input. The obs and task branches stay separate, as Phase 2 requires. 5.37M params.
+- **Quick test, bilinear, 200/task, 8k steps** (`checkpoints/x_bil_8k`, k = 10): **seen 60/60, held-out 30/30**.
+  - ⚠️ **Consequence for the project's premise:** an encoder that factors into cube × zone composes the held-out (cube, zone) pairs for free from sim data alone. With one-hot conditioning, the held-out split no longer needs phone data. Flagged for a decision (see the end of this file / the summary).
+
+## Split change: hold out an object, not combinations (2026-10-08)
+- **Finding (combination split):** with the bilinear (factored) encoder, sim-only A composes the held-out (cube, zone) combinations for free: 100% held-out in the 8k-step test above. Holding out combinations therefore can't motivate phone data. This stays available as `--heldout combo`.
+- **Combination split, full run** (`checkpoints/A_bil_n20`: bilinear, 20 demos/task, 20k steps, k = 50): **seen 89.0% [85.0, 92.1], held-out 61.3% [53.3, 68.8]** (red-yellow 0.60, green-purple 0.58, blue-orange 0.66). Even with 20 demos/task, composition gives most of the held-out performance. (The 200/task combination run was stopped once the split changed.)
+- **New default split, `--heldout object`:** the blue cube is never the target in a sim demo. Seen in sim = the 6 red and green tasks; held out = blue-yellow, blue-purple, blue-orange. The blue cube is still in every sim scene as a distractor (same observation; `tests/test_env.py::test_object_split_blue_is_distractor` checks that it sits on the table, unmoved, through red and green demos). Also available: `object:<cube>`, `zone:<zone>`, or an explicit task list. `evaluate.py` defaults to the split stored in the checkpoint.
+- Recording plan: 4 phone clips for each red/green task and 8 for each blue task (48 in total).
+- The bilinear encoder is now the default (`--bilinear 1`). Checkpoints from before the option load as concat.

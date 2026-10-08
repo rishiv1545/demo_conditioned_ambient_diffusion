@@ -21,8 +21,16 @@ SCENE = os.path.join(ROOT, "assets", "scene.xml")
 CUBES = ("red", "green", "blue")
 ZONES = ("yellow", "purple", "orange")
 ALL_TASKS = [(c, z) for c in range(3) for z in range(3)]
-# Held-out tasks form a Latin square: every cube and every zone still appears in some seen task.
-DEFAULT_HELDOUT = [(0, 0), (1, 1), (2, 2)]
+# Held-out task splits. "object" (default): the blue cube is never a target in sim demos (it is still in every
+# scene as a distractor), so phone demos are the only source for the blue tasks. "combo": a Latin square of
+# (cube, zone) pairs where every cube and zone still appears in some seen task. A policy with factored
+# conditioning composes these for free (100% held-out from sim alone; see NOTES.md), so it is kept only as an option.
+SPLITS = {
+    "object": [(2, 0), (2, 1), (2, 2)],
+    "combo": [(0, 0), (1, 1), (2, 2)],
+}
+DEFAULT_SPLIT = "object"
+DEFAULT_HELDOUT = SPLITS[DEFAULT_SPLIT]
 
 OBS_DIM = 19  # ee(3) + gripper width(1) + cubes(3x3) + zones xy(3x2)
 
@@ -34,6 +42,20 @@ def task_name(task):
 def parse_task(name):
     c, z = name.split("-")
     return CUBES.index(c), ZONES.index(z)
+
+
+def resolve_heldout(spec):
+    """Held-out task list from a split name ("object", "combo"), "object:<cube>", "zone:<zone>", or a comma
+    list of task names like "red-yellow,blue-orange"."""
+    if spec in SPLITS:
+        return list(SPLITS[spec])
+    if spec.startswith("object:"):
+        c = CUBES.index(spec.split(":", 1)[1])
+        return [(c, z) for z in range(3)]
+    if spec.startswith("zone:"):
+        z = ZONES.index(spec.split(":", 1)[1])
+        return [(c, z) for c in range(3)]
+    return [parse_task(s) for s in spec.split(",")]
 
 
 def task_onehot(task):
