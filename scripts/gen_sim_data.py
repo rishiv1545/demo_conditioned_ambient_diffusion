@@ -10,7 +10,8 @@ from multiprocessing import get_context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from policy.data import save_episode  # noqa: E402
-from sim.env import ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, parse_task, resolve_heldout, task_name  # noqa: E402
+from sim.env import (ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, env_cfg_dict, parse_task, resolve_heldout,  # noqa: E402
+                     task_name)
 from sim.expert import run_expert_episode  # noqa: E402
 
 DATA_SEED_BASE = 0  # data seeds: task_index * 100_000 + k; eval seeds live at >= 1_000_000
@@ -31,7 +32,7 @@ def _work(args):
         if not r["success"]:
             continue
         save_episode(os.path.join(out, f"{task_name(task)}_{kept:03d}.npz"), r["obs"], r["action"], task, "sim",
-                     _env.layout, True, meta={"seed": seed})
+                     _env.layout, True, meta={"seed": seed, "env_cfg": env_cfg_dict(_env.cfg)})
         kept += 1
     return task, kept, tried
 

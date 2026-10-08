@@ -22,7 +22,7 @@ import numpy as np  # noqa: E402
 
 from policy.data import layout_from_array, load_episodes  # noqa: E402
 from sim.env import (ALL_TASKS, DEFAULT_SPLIT, IMAGE_CAMERAS, IMAGE_SIZE, STATE_DIM, PickPlaceEnv,  # noqa: E402
-                     instruction, resolve_heldout, task_name)
+                     env_cfg_dict, env_config, instruction, resolve_heldout, task_name)
 
 FPS = 10
 
@@ -81,7 +81,12 @@ def main():
         shutil.rmtree(root)
     ds = LeRobotDataset.create(repo_id=f"local/{a.name}", fps=FPS, features=features(a.size), root=root,
                                robot_type="panda_mujoco", use_videos=True, vcodec=a.vcodec)
-    env = PickPlaceEnv()
+    # rebuild the env version the episodes were recorded in (gripper yaw, start state)
+    cfgs = {json.dumps(ep["meta"].get("env_cfg"), sort_keys=True) for ep in eps}
+    if len(cfgs) > 1:
+        sys.exit(f"episodes come from different env versions: {cfgs}")
+    env_cfg = eps[0]["meta"].get("env_cfg")
+    env = PickPlaceEnv(env_config(env_cfg))
     side = []
     for i, ep in enumerate(eps):
         imgs, states, err = replay_render(env, ep, a.size)
@@ -101,7 +106,8 @@ def main():
             print(f"{i + 1}/{len(eps)} episodes")
     ds.finalize()
     with open(os.path.join(root, "episodes.json"), "w") as f:
-        json.dump({"heldout": [task_name(t) for t in heldout], "episodes": side}, f, indent=1)
+        json.dump({"heldout": [task_name(t) for t in heldout], "env_cfg": env_cfg_dict(env.cfg), "episodes": side},
+                  f, indent=1)
     print(f"wrote {root}: {len(eps)} episodes, {sum(s['length'] for s in side)} frames")
 
 

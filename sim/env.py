@@ -13,7 +13,7 @@ if sys.platform.startswith("linux"):
 import mujoco
 import numpy as np
 
-from sim.ik import IK
+from sim.ik import IK, down_rot
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENE = os.path.join(ROOT, "assets", "scene.xml")
@@ -87,6 +87,24 @@ class EnvConfig:
     home_ee: tuple = (0.45, 0.03, 0.15)         # matches the human HOME spot (near-right corner)
     grip_kp: float = 400.0                      # gripper position gain (menagerie default 100)
     max_steps: int = 200
+    # v2 (2026-10-08): fingers close near-far like the human pinch, and the gripper starts closed like the
+    # human's relaxed hand. v1 (the Phase 1 mechanism study and the first V0 pilot): yaw 0, start open.
+    gripper_yaw_deg: float = 90.0
+    start_gripper_closed: bool = True
+    release_dist: float = 0.045                 # "released": fingertip center this far from the cube center
+
+
+LEGACY_V1 = dict(gripper_yaw_deg=0.0, start_gripper_closed=False)
+
+
+def env_cfg_dict(cfg):
+    """The settings that define the data-generating env version (stored with every episode and dataset)."""
+    return {"gripper_yaw_deg": float(cfg.gripper_yaw_deg), "start_gripper_closed": bool(cfg.start_gripper_closed)}
+
+
+def env_config(d=None):
+    """EnvConfig from a stored dict (dataset/episode metadata). A missing dict means data made before v2."""
+    return EnvConfig(**(LEGACY_V1 if d is None else d))
 
 
 class PickPlaceEnv:
@@ -101,6 +119,7 @@ class PickPlaceEnv:
         self.m.actuator_biasprm[g, 1] = -self.cfg.grip_kp
         self.m.actuator_biasprm[g, 2] = -0.1 * self.cfg.grip_kp
         self.ik = IK(self.m)
+        self.ik.rot = down_rot(self.cfg.gripper_yaw_deg)
         self.ee_site = self.m.site("ee").id
         self.cube_qadr = [self.m.jnt_qposadr[self.m.joint(f"cube_{c}").id] for c in CUBES]
         self.cube_body = [self.m.body(f"cube_{c}").id for c in CUBES]
@@ -148,9 +167,10 @@ class PickPlaceEnv:
         if ee_start is not None:
             q = self.ik.solve(q, np.asarray(ee_start, dtype=float), iters=100)
         self.d.qpos[:7] = q
-        self.d.qpos[self.finger_qadr] = 0.04
+        closed = self.cfg.start_gripper_closed
+        self.d.qpos[self.finger_qadr] = 0.0 if closed else 0.04
         self.d.ctrl[:7] = q
-        self.d.ctrl[7] = 255.0
+        self.d.ctrl[7] = 0.0 if closed else 255.0
         for i, a in enumerate(self.cube_qadr):
             self.d.qpos[a:a + 3] = [*self.layout["cubes"][i], self.cfg.cube_half]
             self.d.qpos[a + 3:a + 7] = [1, 0, 0, 0]
@@ -210,7 +230,9 @@ class PickPlaceEnv:
         zc = self.layout["zones"][z]
         inside = np.all(np.abs(p[:2] - zc) <= self.cfg.zone_half)
         resting = p[2] < self.cfg.cube_half + 0.005
-        released = self.gripper_width() > 2 * self.cfg.cube_half + 0.005
+        # not held: the fingertips are away from the cube (the gripper may be closed again, at rest, like the
+        # human's relaxed hand at the end of a demo)
+        released = np.linalg.norm(self.ee_pos() - p) > self.cfg.release_dist
         return bool(inside and resting and released)
 
     def state(self):

@@ -22,7 +22,7 @@ from human.objects import layout_json_path, list_clips, load_layout_json, parse_
 from human.camera_match import apply_camera, estimate_phone_camera  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
-from sim.env import CUBES, ZONES, PickPlaceEnv, parse_task, task_name  # noqa: E402
+from sim.env import CUBES, ZONES, PickPlaceEnv, env_cfg_dict, parse_task, task_name  # noqa: E402
 
 
 
@@ -138,7 +138,8 @@ def main():
         try:
             frames, fps = read_video(os.path.join(a.session, clip))
             Hs, _ = video_homographies(frames, s["marker_xy"])
-            ex = extract_clip(frames, fps, Hs, s, cal["s0_m"], a.grip_lo, a.grip_hi, grip_mode=a.grip_mode)
+            ex = extract_clip(frames, fps, Hs, s, cal["s0_m"], a.grip_lo, a.grip_hi, grip_mode=a.grip_mode,
+                              rest_closed=env.cfg.start_gripper_closed)
             plot_traj(ex, os.path.join(out, f"{name}_traj.png"), title=clip)
             manual = load_layout_json(layout_json_path(a.session, clip))
             lay = layout_from_objects(manual if manual is not None else ex["objects"])
@@ -169,7 +170,8 @@ def main():
                           bool(np.all(np.abs(end[CUBES[task[0]]] - lay["zones"][task[1]]) <= 0.05)))
             meta = {"clip": clip, "session": sname, "fps": fps, "tracked_frac": tracked,
                     "human_completed": human_done, "long_gaps": int((~ex["valid"]).sum()),
-                    "z_offset": z_off, "layout_source": row["layout_source"]}
+                    "z_offset": z_off, "layout_source": row["layout_source"],
+                    "env_cfg": env_cfg_dict(env.cfg), "grip_info": ex["grip_info"]}
             save_human_episode(os.path.join(a.out_data, sname, f"{name}.npz"), r, task, lay,
                                raw_traj=ee, raw_gripper=g, meta=meta)
             row.update(replay_success=int(r["success"]), track_err=r["track_err"], human_completed=int(human_done))

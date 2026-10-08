@@ -152,13 +152,17 @@ def min_duration(binary, n):
     return b
 
 
-def grasp_interval(ap, fps, close_frac=0.6, open_frac=0.5, spread_pct=97, grasp_s=0.5, min_dur_s=0.2):
+def grasp_interval(ap, fps, close_frac=0.6, open_frac=0.5, spread_pct=97, grasp_s=0.5, min_dur_s=0.2,
+                   rest_closed=True):
     """Gripper state for a single pick-and-place clip, with thresholds relative to the clip itself.
     spread = the clip's wide-open aperture level (97th percentile). Close: the aperture falls below
     close_frac * spread. Open: it rises above m + open_frac * (spread - m), where m is the grasp opening (median over
     the first grasp_s after closing), so a small object's barely-opening release is still detected. Only the first
     closed interval followed by a reopening counts (one grasp per clip): relaxing the hand at HOME after the
-    release, below the close threshold, is not a second grasp. Returns (closed [T] bool, info dict)."""
+    release, below the close threshold, is not a second grasp.
+    rest_closed (env v2): the relaxed hand (fingers together) also counts as closed, i.e. before the first spread and
+    after the hand relaxes again following the release, so the robot gripper mirrors the hand: closed at rest,
+    open while spread, closed on the object. Returns (closed [T] bool, info dict)."""
     ap = np.asarray(ap, float)
     T = len(ap)
     spread = float(np.percentile(ap, spread_pct))
@@ -183,6 +187,13 @@ def grasp_interval(ap, fps, close_frac=0.6, open_frac=0.5, spread_pct=97, grasp_
         if to - tc >= min_n:
             closed[tc:to] = True
             info.update(grasp_aperture=m, open_thr=o, t_close=tc / fps, t_open=to / fps)
+            if rest_closed:
+                first = int(first_open[0])
+                if first >= min_n:
+                    closed[:first] = True                      # relaxed hand before the first spread
+                relax = np.flatnonzero(ap[to:] < c)
+                if len(relax) and T - (to + relax[0]) >= min_n:
+                    closed[to + relax[0]:] = True              # relaxed again after the release
             break
         t = to                                   # too short: a flicker, keep looking
     return closed, info
@@ -232,7 +243,7 @@ def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclud
 
 # ---------------------------------------------------------------------------- full extraction
 def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_dur_s=0.2, max_gap_s=0.5,
-                 grip_mode="relative"):
+                 grip_mode="relative", rest_closed=True):
     """Returns dict with t [T], xy [T,2], z [T], grip [T] (bool closed), aperture [T], valid [T], lm_px, objects."""
     Hc = session["camera_height"]
     lm_px = track_hand(frames, fps, session.get("hand", "right"))
@@ -250,7 +261,7 @@ def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_du
     z = np.clip(height_from_size(size_s, s0, Hc), 0.0, None)
     xy = parallax_correct(sm[:, :2], z, cam, Hc)
     if grip_mode == "relative":
-        closed, grip_info = grasp_interval(sm[:, 3], fps, min_dur_s=min_dur_s)
+        closed, grip_info = grasp_interval(sm[:, 3], fps, min_dur_s=min_dur_s, rest_closed=rest_closed)
     else:  # fixed thresholds (first version)
         closed = min_duration(hysteresis(sm[:, 3], grip_lo, grip_hi), max(1, int(min_dur_s * fps)))
         grip_info = {"close_thr": grip_lo, "open_thr": grip_hi}

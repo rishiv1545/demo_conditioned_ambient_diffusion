@@ -10,7 +10,7 @@ STEPS=${STEPS:-5000}
 OUT=checkpoints/vla
 EVAL=outputs/vla/$RUN
 
-$PY vla/train_smolvla.py --run_name $RUN --data data/lerobot/sim_seen --out $OUT --steps $STEPS \
+$PY vla/train_smolvla.py --run_name $RUN --data data/lerobot/sim_seen_v2 --out $OUT --steps $STEPS \
     --batch 16 --grad_accum 2 --save_every 500 --resume
 
 # intermediate evals: 20 episodes/task every 1000 steps

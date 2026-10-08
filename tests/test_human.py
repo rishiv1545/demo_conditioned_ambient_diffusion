@@ -194,11 +194,15 @@ def test_grasp_interval_relative_thresholds():
     fps = 10
     # exaggerated pattern: rest 0.9 -> spread 2.0 -> grasp 0.85 (a wide object) -> spread 2.0 -> rest 0.9
     ap = np.r_[np.full(20, 0.9), np.full(10, 2.0), np.full(30, 0.85), np.full(10, 2.0), np.full(20, 0.9)]
-    closed, info = grasp_interval(ap, fps)
+    closed, info = grasp_interval(ap, fps, rest_closed=False)
     assert closed[30:60].all() and not closed[:30].any() and not closed[60:].any()   # rest at HOME is not a grasp
+    # env v2: the gripper mirrors the hand: closed at rest, open while spread, closed on the object
+    mirror, _ = grasp_interval(ap, fps)
+    assert mirror[:20].all() and not mirror[20:30].any() and mirror[30:60].all()
+    assert not mirror[60:70].any() and mirror[70:].all()
     # small object, barely-opening release: rest 0.9, grasp 0.25, release to only 0.6
     ap2 = np.r_[np.full(20, 0.9), np.full(30, 0.25), np.full(20, 0.6), np.full(10, 0.9)]
-    c2, info2 = grasp_interval(ap2, fps)
+    c2, info2 = grasp_interval(ap2, fps, rest_closed=False)
     assert c2[20:50].all() and not c2[50:].any()
 
 

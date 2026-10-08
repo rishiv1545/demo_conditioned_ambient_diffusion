@@ -34,6 +34,8 @@ def plan(env, rng):
         if rng.random() < 0.5:
             wait(grip, rng.uniform(0.05, 0.3))
 
+    if env.cfg.start_gripper_closed:          # v2: like the human's relaxed hand: rest closed, then open
+        wait(1.0, rng.uniform(0.2, 0.6))
     move(pre_grasp, 0.0, v, settle=0.2); pause(0.0)
     move(grasp, 0.0, v_down, settle=0.2)
     wait(1.0, rng.uniform(0.5, 0.7))                 # close
@@ -42,6 +44,10 @@ def plan(env, rng):
     move(place, 1.0, v_down, settle=0.2)
     wait(0.0, rng.uniform(0.4, 0.6))                 # open
     move(retreat, 0.0, v_down)
+    if env.cfg.start_gripper_closed:          # v2: return to HOME and relax (close), like the human demos
+        home = np.array(env.cfg.home_ee) + np.r_[rng.uniform(-0.01, 0.01, 2), 0.0]
+        move(home, 0.0, v)
+        wait(1.0, rng.uniform(0.3, 0.6))
     return segs
 
 

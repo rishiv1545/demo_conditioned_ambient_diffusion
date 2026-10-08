@@ -2,11 +2,18 @@
 import mujoco
 import numpy as np
 
-# Gripper pointing straight down, fingers opening along the table x axis.
-# Columns are the site's x, y, z axes expressed in the world frame.
-DOWN_ROT = np.array([[0.0, 1.0, 0.0],
-                     [1.0, 0.0, 0.0],
-                     [0.0, 0.0, -1.0]])
+
+def down_rot(yaw_deg=90.0):
+    """Gripper pointing straight down; the fingers open along (cos yaw, sin yaw, 0) in the table frame.
+    yaw 0: along x (left-right as seen from the human's seat); yaw 90: along y (near-far, like the human pinch).
+    Columns are the site's x, y, z axes in the world frame (site y = finger axis, site z = approach direction)."""
+    a = np.radians(yaw_deg)
+    y = np.array([np.cos(a), np.sin(a), 0.0])
+    z = np.array([0.0, 0.0, -1.0])
+    return np.column_stack([np.cross(y, z), y, z])
+
+
+DOWN_ROT = down_rot(0.0)  # the original (v1) orientation
 
 
 class IK:
@@ -22,6 +29,7 @@ class IK:
         self.jacp = np.zeros((3, model.nv))
         self.jacr = np.zeros((3, model.nv))
         self.q_rest = None                     # nullspace posture bias, set by the env
+        self.rot = DOWN_ROT                    # default target orientation, set by the env
 
     def fk(self, q):
         self.d.qpos[:self.n] = q
@@ -29,7 +37,8 @@ class IK:
         mujoco.mj_comPos(self.m, self.d)
         return self.d.site_xpos[self.site].copy(), self.d.site_xmat[self.site].reshape(3, 3).copy()
 
-    def solve(self, q0, target_pos, target_rot=DOWN_ROT, iters=15, tol=1e-4):
+    def solve(self, q0, target_pos, target_rot=None, iters=15, tol=1e-4):
+        target_rot = self.rot if target_rot is None else target_rot
         q = np.array(q0[:self.n], dtype=float)
         for _ in range(iters):
             pos, rot = self.fk(q)
