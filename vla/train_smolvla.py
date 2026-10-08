@@ -24,6 +24,7 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from vla.ambient import ambient_time  # noqa: E402
+from vla.feature_cache import PREFIX, CachedChunkDataset, build_cache, has_cache, use_cached_features  # noqa: E402
 
 
 def lr_lambda(step, warmup, total, peak, floor):
@@ -54,6 +55,9 @@ def main():
     p.add_argument("--log_every", type=int, default=25)
     p.add_argument("--workers", type=int, default=max(1, min(8, (os.cpu_count() or 2) - 2)))
     p.add_argument("--device", default="auto")
+    p.add_argument("--dtype", default="auto", help="auto (bf16 where supported, else fp32) | keep | fp32")
+    p.add_argument("--features", default="cache", choices=["cache", "raw"],
+                   help="cache: train from precomputed frozen vision features (built on first use); raw: images")
     p.add_argument("--resume", action="store_true")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max_minutes", type=float, default=0, help="stop (after saving) after this long; 0 = no limit")
@@ -67,7 +71,16 @@ def main():
     chunk = base_config().chunk_size
     dss, stats = open_datasets(a.data, chunk)
     features = dss[0].meta.features
-    policy, pre, _, cfg = build_policy(features, stats, dev)
+    policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype)
+    img_keys = list(cfg.image_features)
+    if a.features == "cache":
+        for root in a.data:
+            if not has_cache(root, img_keys):
+                t_c = time.time()
+                build_cache(root, policy, dev)
+                print(f"built vision cache for {root} in {time.time() - t_c:.0f}s", flush=True)
+        dss = [CachedChunkDataset(root, chunk, img_keys) for root in a.data]
+        policy = use_cached_features(policy)
     save_run_config(run_dir, vars(a), {k: dict(v) for k, v in features.items()}, stats)
     n_train = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     n_all = sum(p.numel() for p in policy.parameters())
@@ -110,6 +123,12 @@ def main():
             raw = next(it)
             sigma = raw["sigma_n"].reshape(-1).float()
             batch = pre(raw)
+            # LeRobot reads "actions_id_pad" (sic) but datasets provide "action_is_pad": without this, padded
+            # chunk tails (copies of the last action) would count in the loss.
+            batch["actions_id_pad"] = batch["action_is_pad"].to(dev)
+            for k in img_keys:
+                if PREFIX + k in raw:   # the preprocessor drops unknown keys; cached features go in directly
+                    batch[PREFIX + k] = raw[PREFIX + k].to(dev)
             t = ambient_time(sigma, a.ambient_t_min, gen).to(dev)   # ambient flow matching (off when t_min=0)
             per, _ = policy.forward(batch, time=t, reduction="none")
             loss = per.mean()

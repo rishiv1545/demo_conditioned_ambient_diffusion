@@ -18,7 +18,15 @@ def load_session(session_dir):
         s = json.load(f)
     s["camera_height"] = s["camera_height_cm"] / 100.0
     s["box_height"] = s["calib_box_height_cm"] / 100.0
-    s["marker_xy"] = marker_table_xy(s["rect_cm"])
+    corners = marker_table_xy(s["rect_cm"])  # near-left, near-right, far-right, far-left
+    # Which marker ID is taped at each corner (near-left, near-right, far-right, far-left). Default: as in
+    # RECORDING.md. Lets a rotated sticker layout be fixed in software instead of re-taping.
+    ids = s.get("corner_ids", [0, 1, 2, 3])
+    if sorted(ids) != [0, 1, 2, 3]:
+        raise ValueError(f"corner_ids must be a permutation of 0-3, got {ids}")
+    s["marker_xy"] = np.zeros((4, 2))
+    for corner, mid in enumerate(ids):
+        s["marker_xy"][mid] = corners[corner]   # indexed by marker ID, as video_homographies expects
     return s
 
 
@@ -33,7 +41,8 @@ def _circle_intersect(p0, r0, p1, r1, want_positive_y=True):
 
 
 def marker_table_xy(rect_cm):
-    """Table coordinates (m) of the 4 marker centers from measured side lengths and diagonals."""
+    """Table coordinates (m) of the 4 rectangle corners (near-left, near-right, far-right, far-left) from measured
+    side lengths and diagonals. In rect_cm, "d01" etc. name corners in that order (= marker IDs by default)."""
     r = {k: v / 100.0 for k, v in rect_cm.items()}
     p0, p1 = np.array([0.0, 0.0]), np.array([r["d01"], 0.0])
     p3 = _circle_intersect(p0, r["d30"], p1, r["d13"])

@@ -40,7 +40,20 @@ def open_datasets(roots, chunk_size, fps=10):
     return dss, stats
 
 
-def build_policy(features, stats, device, n_action_steps=None):
+def resolve_dtype(device, dtype="auto"):
+    """SmolVLA's default (bf16 backbone) where bf16 is supported (MPS, Ampere+ CUDA); otherwise everything in fp32
+    (e.g. on a T4, which has no bf16). A full fp16 cast is not offered: the backbone was trained in bf16 (fp16
+    can overflow), and fp32 inputs such as the state would then hit fp16 layers."""
+    if dtype != "auto":
+        return {"fp32": torch.float32, "keep": None}[dtype]
+    if device == "cuda" and not torch.cuda.is_bf16_supported():
+        return torch.float32
+    if device == "cpu":
+        return torch.float32
+    return None  # keep SmolVLA's default (bf16 backbone, fp32 elsewhere)
+
+
+def build_policy(features, stats, device, n_action_steps=None, dtype="auto"):
     """SmolVLA-base weights with our input/output features (4-D state, 4-D action, our cameras)."""
     from lerobot.configs.types import FeatureType
     from lerobot.datasets.utils import dataset_to_policy_features
@@ -54,7 +67,11 @@ def build_policy(features, stats, device, n_action_steps=None):
     cfg.input_features = {k: f for k, f in pf.items() if f.type is not FeatureType.ACTION}
     if n_action_steps is not None:
         cfg.n_action_steps = n_action_steps
-    policy = SmolVLAPolicy.from_pretrained(BASE, config=cfg).to(device)
+    policy = SmolVLAPolicy.from_pretrained(BASE, config=cfg)
+    dt = resolve_dtype(device, dtype)
+    if dt is not None:
+        policy = policy.to(dt)
+    policy = policy.to(device)
     pre, post = make_smolvla_pre_post_processors(cfg, dataset_stats=stats)
     return policy, pre, post, cfg
 

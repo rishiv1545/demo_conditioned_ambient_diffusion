@@ -164,3 +164,15 @@ def test_layout_json_roundtrip_and_click_conversion(tmp_path):
     save_layout_json(path, full)
     back = load_layout_json(path)
     assert all(np.allclose(back[n], full[n]) for n in ORDER)
+
+
+def test_corner_ids_remap_markers(tmp_path):
+    import json
+    from human.calibrate import load_session
+    base = {"camera_height_cm": 75, "rect_cm": RECT, "calib_box_height_cm": 15}
+    for ids in ([0, 1, 2, 3], [1, 2, 3, 0]):
+        (tmp_path / "session.json").write_text(json.dumps({**base, "corner_ids": ids}))
+        s = load_session(str(tmp_path))
+        corners = marker_table_xy(RECT)
+        for corner, mid in enumerate(ids):
+            assert np.allclose(s["marker_xy"][mid], corners[corner])

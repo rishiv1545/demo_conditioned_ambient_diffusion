@@ -92,6 +92,8 @@ If a clip goes wrong (the object is dropped, a marker gets covered), just re-rec
 
 - Use good, even lighting with no hard shadows; daylight plus room lights works well. Avoid glare on the markers and on shiny objects.
 - Keep anything else in your 6 colors out of the camera view, including clothing, mugs and phone cases.
+- **On a wood table, avoid wood-like colors:** brown, beige, tan, yellow and orange items match the wood grain, and silver/white/gray items match bright wood and tape. Blue, purple, pink/magenta, green, teal and red stand out. (If you keep wood-like items, use the click fallback in section 8.)
+- Avoid casting a shadow over the workspace (yours or the phone mount's); dark shadow areas look like dark objects.
 - A long sleeve is fine, but keep the hand itself uncovered (no gloves, and preferably no bright rings or watches).
 - Only one hand in view.
 
@@ -106,7 +108,7 @@ data/raw_phone/<session_name>/        e.g. data/raw_phone/2026-10-10_kitchen/
 └── ...
 ```
 
-`session.json`: fill in your measurements (cm) and what each task name is. `height_cm` is the object's height as it sits on the table. Leave out `"hsv"`; the color tool in section 8 fills it in.
+`session.json`: fill in your measurements (cm) and what each task name is. `corner_ids` lists which marker ID sits at the near-left, near-right, far-right and far-left corner (as seen from where you stand). Leave it as `[0, 1, 2, 3]` if you taped them as in section 2; if the stickers ended up rotated, put the actual IDs here instead of re-taping. The rect distances `d01`, `d12`, … always mean near-left→near-right, near-right→far-right, and so on. `height_cm` is the object's height as it sits on the table. Leave out `"hsv"`; the color tool in section 8 fills it in.
 
 ```json
 {
@@ -114,6 +116,7 @@ data/raw_phone/<session_name>/        e.g. data/raw_phone/2026-10-10_kitchen/
   "rect_cm": {"d01": 50.0, "d12": 35.0, "d23": 50.0, "d30": 35.0, "d02": 61.0, "d13": 61.0},
   "calib_box_height_cm": 15.0,
   "hand": "right",
+  "corner_ids": [0, 1, 2, 3],
   "objects": [
     {"name": "red",   "label": "red Lego 2x2 brick", "height_cm": 2.0},
     {"name": "green", "label": "green eraser",       "height_cm": 1.5},
