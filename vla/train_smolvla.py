@@ -50,6 +50,8 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--lr_floor", type=float, default=2.5e-6)
     p.add_argument("--warmup", type=int, default=300)
+    p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant"],
+                   help="constant: hold lr after warmup (no decay)")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
     p.add_argument("--save_every", type=int, default=500)
     p.add_argument("--log_every", type=int, default=25)
@@ -93,7 +95,10 @@ def main():
     params = [q for q in policy.parameters() if q.requires_grad]
     opt = torch.optim.AdamW(params, lr=a.lr, betas=cfg.optimizer_betas, eps=cfg.optimizer_eps,
                             weight_decay=cfg.optimizer_weight_decay)
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_lambda(s, a.warmup, a.steps, a.lr, a.lr_floor))
+    if a.lr_schedule == "constant":
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / a.warmup))
+    else:
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_lambda(s, a.warmup, a.steps, a.lr, a.lr_floor))
     start = 0
     if a.resume and list_checkpoints(run_dir):
         step0, d = list_checkpoints(run_dir)[-1]
