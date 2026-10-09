@@ -51,11 +51,17 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
     steps = np.zeros(len(jobs), int)
     frames = {i: [] for i in (record or [])}
     max_steps = envs[0].cfg.max_steps
+    obs = None
     for _ in range(max_steps):
         for i in frames:
             frames[i].append(envs[i].render("front"))
+        # select_action only looks at the observation when its action queue is empty (once per n_action_steps);
+        # otherwise it pops a queued action. Rendering (~0.1 s per 512 px image on Colab's software EGL) dominates
+        # eval time, so render only when a new chunk will be planned. Same actions as rendering every step.
+        if obs is None or len(policy._queues["action"]) == 0:
+            obs = pre(to_batch(envs, tasks, dev, cams, size))
         with torch.no_grad():
-            act = post(policy.select_action(pre(to_batch(envs, tasks, dev, cams, size)))).cpu().numpy()
+            act = post(policy.select_action(obs)).cpu().numpy()
         for i, e in enumerate(envs):
             if done[i]:
                 continue                     # finished envs are frozen (their actions are ignored)

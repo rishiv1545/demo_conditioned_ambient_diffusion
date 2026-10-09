@@ -249,6 +249,9 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 - **Manual per new VM:** `colab drivemount -s dcad` (interactive). First `pip install -r requirements.txt` on a fresh VM takes ≈ 14 min.
 - **CLI pitfalls handled:** `colab exec` exits 0 when the code raises (traceback on stderr) → the driver treats a traceback as failure; upload fails for large files and for missing parent dirs; detached processes linger as zombies (liveness reads `/proc/<pid>/stat`); `colab stop` only knows sessions the CLI created (others: `client.unassign(endpoint)`); idle runtimes from browser tabs keep billing until deleted.
 - `colab/train_smolvla.ipynb` is now a thin browser wrapper around the same `job.py`.
+- **Eval speed:** the smoke eval took 916 s for 18 episodes (one batch): MuJoCo renders 512 px images at ≈ 0.1 s each on Colab (EGL without the NVIDIA vendor library, i.e. software), 3.7 s per step for 18 envs × 2 cameras, vs 0.06 s physics. `eval_smolvla.py` now renders only when the policy's action queue is empty (once per `n_action_steps` = 10): **identical actions** (max |diff| 0 over 40 steps × 4 envs, same seeds) and 5.4× faster (38 s → 7 s).
+- **Probe noise:** the 50-step smoke model scored 0.46 grounding with 8 layouts (n = 24), so n = 24 can't separate 0.58 from noise. The pipeline's probe now uses 32 layouts (n = 96; `defaults.probe` in `runs.json`).
+- Smoke run (`smoke`, 50 steps): data 0 s (already extracted), **cache 654 s** (build 578 s on the A100 vs 3.3 h on MPS, + copy to Drive), train 95 s, probe 58 s, eval 944 s (before the render fix).
 - `vla/build_cache.py`: one pass over the video for all cameras (was one decode pass per camera) with progress lines; `tests/test_feature_cache.py` passes.
 
 ## Current status / resume here (2026-10-09 ~10:00)

@@ -1,8 +1,9 @@
 {
-  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); train: extra train_smolvla.py args (added to defaults.train); eval_k: episodes/task for the final eval (0 = skip); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args).",
+  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe_grounding.py args (defaults: 32 layouts = n 96; 8 layouts gave 0.46 'grounding' for a 50-step model); eval_k: episodes/task for the final eval (0 = skip); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args).",
   "defaults": {
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
-    "eval_k": 20
+    "eval_k": 20,
+    "probe": "--layouts 32"
   },
   "runs": {
     "V0_2cam_unfrozen": {

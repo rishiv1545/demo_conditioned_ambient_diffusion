@@ -142,7 +142,8 @@ def run_one(name, cfg, defaults, stages, job_id):
                     sh(f"python vla/train_smolvla.py --run_name {name} --data {' '.join(data)} --out {OUT} "
                        f"{train_args}", log)
                 elif st == "probe":
-                    sh(f"python vla/probe_grounding.py --run {run_dir} --step all --device cuda "
+                    probe_args = cfg.get("probe", defaults.get("probe", ""))
+                    sh(f"python vla/probe_grounding.py --run {run_dir} --step all --device cuda {probe_args} "
                        f"--log {run_dir}/probe.txt", log)
                 elif st == "eval" and eval_k > 0:
                     step = latest_step(run_dir)

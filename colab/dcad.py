@@ -82,7 +82,7 @@ import os, subprocess, hashlib
 def sh(c): return subprocess.run(c, shell=True, capture_output=True, text=True)
 if not os.path.exists("{REMOTE}/.git"):
     print(sh("git clone -q {GIT_URL} {REMOTE}").stderr)
-r = sh("cd {REMOTE} && git fetch -q origin && git checkout -q --detach {head} && git log --oneline -1")
+r = sh("cd {REMOTE} && git fetch -q origin && git checkout -q -f --detach {head} && git log --oneline -1")
 print("code:", r.stdout.strip(), r.stderr.strip())
 req = hashlib.md5(open("{REMOTE}/requirements.txt", "rb").read()).hexdigest()
 mark = "/content/.dcad_installed"
