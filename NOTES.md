@@ -255,8 +255,9 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 - `vla/build_cache.py`: one pass over the video for all cameras (was one decode pass per camera) with progress lines; `tests/test_feature_cache.py` passes.
 
 ## Current status / resume here (2026-10-09 ~10:00)
-- Colab CLI logged in (`~/.local/bin/colab`). OAuth gotcha: if the consent screen grants fewer scopes than requested, `oauthlib` raises "Scope has changed" and nothing is saved; tick every box (or `OAUTHLIB_RELAX_TOKEN_SCOPE=1`). `~/.config/colab-cli/colab.log` has token material in plain text (debug log): delete it.
+- Colab CLI logged in (`~/.local/bin/colab`). OAuth gotcha: if the consent screen grants fewer scopes than requested, `oauthlib` raises "Scope has changed" and nothing is saved; tick every box (or `OAUTHLIB_RELAX_TOKEN_SCOPE=1`). The CLI hard-codes a DEBUG file log with token material at `~/.config/colab-cli/colab.log`: deleted and replaced by a symlink to `/dev/null` (2026-10-09). Credentials live in `~/.config/colab-cli/token.json`.
 - Repo is **public** now (the VM clones without a token). The sim dataset is on Drive as `dcad/datasets/sim_seen_v2c_100.tar`.
 - **Next:** smoke run of the pipeline → `V0_2cam_unfrozen_30k` → eval. Phone data: record the 48 clips (RECORDING.md) → `click_layout.py` → `process_phone.py` → `vla/export_lerobot.py --name phone_v2 ...` → `python colab/dcad.py push-data data/lerobot/phone_v2` → `python colab/dcad.py run V1_phone_naive V2_phone_ambient_t03` (add more t_min entries to `runs.json` for the sweep).
 - Paused: the small-policy ambient validation on synthetic noise (`scripts/run_ambient_synthetic.sh`); no large runs locally.
-- **Local disk:** `data/lerobot/sim_seen_v2c_100/vision_cache` (15 GB) isn't needed locally; the user hasn't answered whether to delete it.
+- **Local disk:** deleted the local `sim_seen_v2c_100/vision_cache` (15 GB; Colab keeps its own on Drive). 49 GiB free.
+- 2026-10-09 ~10:20: the user is recording the 48 phone clips; `V0_2cam_unfrozen_30k` is running on Colab (`wait --stop` in the background).
