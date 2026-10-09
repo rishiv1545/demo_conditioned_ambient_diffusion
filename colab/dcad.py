@@ -15,6 +15,7 @@ until `down` or `wait --stop`, even when idle.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -36,13 +37,19 @@ def colab(*args, check=True, capture=True):
 
 
 def remote(code, session, timeout=120):
-    """Run Python code in the VM's kernel and return its stdout."""
+    """Run Python code in the VM's kernel and return its stdout. `colab exec` exits 0 even when the code raises (the
+    traceback goes to stderr), so a traceback on stderr is turned into a failure here."""
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
         f.write(code)
     try:
-        return colab("exec", "-s", session, "--timeout", str(timeout), "-f", f.name)
+        r = subprocess.run([COLAB, "exec", "-s", session, "--timeout", str(timeout), "-f", f.name],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True)
     finally:
         os.remove(f.name)
+    err = re.sub(r"\x1b\[[0-9;]*m", "", r.stderr)
+    if r.returncode != 0 or "Traceback" in err:
+        sys.exit(f"remote code failed:\n{r.stdout}\n{err[-3000:]}")
+    return r.stdout
 
 
 def git(*args):
@@ -137,8 +144,11 @@ def cmd_run(a):
     job_id = time.strftime("%Y%m%d-%H%M%S")
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else {}
     print(remote(f"""
-import subprocess, os
-busy = subprocess.run("pgrep -f 'colab/job.py'", shell=True, capture_output=True, text=True).stdout.split()
+import subprocess, os, glob
+def argv(p):
+    try: return open(p, "rb").read().split(b"\\0")
+    except OSError: return []
+busy = [p.split("/")[2] for p in glob.glob("/proc/[0-9]*/cmdline") if b"colab/job.py" in argv(p)[1:2]]
 assert not busy, f"a job is already running on this VM (pids {{busy}}); one GPU job at a time"
 log = open("/content/job_{job_id}.out", "w")
 p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}"],
@@ -157,7 +167,10 @@ path = f"{DRIVE}/jobs/{{want}}.json" if want else (jobs[-1] if jobs else None)
 if not path or not os.path.exists(path):
     print("no jobs"); raise SystemExit
 job = json.load(open(path))
-alive = os.path.exists(f"/proc/{{job['pid']}}") and job["state"] == "running"
+def alive(pid):   # the kernel never reaps the detached job, so a finished one lingers as a zombie
+    try: return open(f"/proc/{{pid}}/stat").read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError: return False
+alive = alive(job["pid"]) and job["state"] == "running"
 if job["state"] == "running" and not alive:
     job["state"] = "died"   # VM restarted or the process was killed
 print("JOB", job["job"], "state", job["state"], "runs", job["runs"], "current", job.get("current"))
