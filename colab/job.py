@@ -78,14 +78,22 @@ def ensure_cache(name, log):
     if glob.glob(f"{lc}/*.npy") and os.path.exists(f"{lc}/LOCAL_COMPLETE"):
         log.write(f"cache {name}: already on local disk\n")
         return
+    lock = f"{DRIVE}/vision_cache/{name}.building"   # another VM building the same cache: wait for it
+    while not os.path.exists(f"{dc}/COMPLETE") and os.path.exists(lock) and time.time() - os.path.getmtime(lock) < 3 * 3600:
+        log.write(f"cache {name}: another VM is building it, waiting\n")
+        log.flush()
+        time.sleep(120)
     if os.path.exists(f"{dc}/COMPLETE"):
         os.makedirs(lc, exist_ok=True)
         sh(f"cp {dc}/*.npy {dc}/*.json {lc}/", log)
     else:
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        open(lock, "w").write(os.uname().nodename)
         sh(f"python vla/build_cache.py {shlex.quote(local)} --device cuda --batch 64", log)
         shutil.rmtree(dc, ignore_errors=True)
         os.makedirs(dc)
         sh(f"cp {lc}/*.npy {lc}/*.json {dc}/ && touch {dc}/COMPLETE", log)
+        os.remove(lock)
     open(f"{lc}/LOCAL_COMPLETE", "w").close()
 
 

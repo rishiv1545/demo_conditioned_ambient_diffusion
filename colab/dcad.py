@@ -8,6 +8,9 @@
     python colab/dcad.py fetch V1_phone_naive        # small results -> outputs/colab/<run>/
     python colab/dcad.py down                        # stop the VM (billing stops)
 
+Several VMs at once: give each its own session name (`-s dcad2 run ...`); each is a separate, separately billed A100
+running its own job; status/wait/down act on the named session. Concurrent GPU sessions are limited by the Colab plan.
+
 One manual step per new VM: `colab drivemount -s dcad` (interactive). Jobs run with nohup on the VM and keep all
 state on Drive (see colab/job.py), so the Mac can sleep or disconnect. A running VM bills (~5 units/h on an A100)
 until `down` or `wait --stop`, even when idle.
@@ -148,7 +151,7 @@ def cmd_run(a):
         sys.exit(f"unknown runs {missing}; add them to colab/runs.json (and push)")
     if cmd_up(a):
         return 2
-    job_id = time.strftime("%Y%m%d-%H%M%S")
+    job_id = f"{a.session}-{time.strftime('%Y%m%d-%H%M%S')}"   # per-VM job ids: several sessions share Drive
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else {}
     print(remote(f"""
 import subprocess, os, glob
@@ -168,7 +171,10 @@ print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
 
 STATUS_CODE = f"""
 import glob, json, os, subprocess
-jobs = sorted(glob.glob("{DRIVE}/jobs/*.json"))
+jobs = glob.glob("{DRIVE}/jobs/{{SESSION}}-*.json")   # this VM's jobs only
+if "{{SESSION}}" == "dcad":
+    jobs += glob.glob("{DRIVE}/jobs/2*.json")   # ids from before per-session ids (all ran on 'dcad')
+jobs = sorted(jobs, key=os.path.getmtime)
 want = {{JOB!r}}
 path = f"{DRIVE}/jobs/{{want}}.json" if want else (jobs[-1] if jobs else None)
 if not path or not os.path.exists(path):
@@ -201,7 +207,8 @@ print("gpu:", subprocess.run("nvidia-smi --query-gpu=utilization.gpu,memory.used
 
 
 def status(a, n=12):
-    return remote(STATUS_CODE.replace("{JOB!r}", repr(a.job)).replace("{N}", str(n)), a.session)
+    return remote(STATUS_CODE.replace("{JOB!r}", repr(a.job)).replace("{N}", str(n)).replace("{SESSION}", a.session),
+                  a.session)
 
 
 def cmd_status(a):
