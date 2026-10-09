@@ -13,6 +13,8 @@ import math
 import os
 import re
 
+import numpy as np
+
 
 def abar(t, T=100, s=0.008):
     """alpha_bar[t] of policy/diffusion.py (product of the clamped betas; equal to f(t+1)/f(0) away from t = T-1)."""
@@ -34,20 +36,26 @@ def main():
     a = p.parse_args()
     res = {}
     for f in glob.glob(os.path.join(a.out, "*", "summary.json")):
-        s = json.load(open(f))
-        res[os.path.basename(os.path.dirname(f))] = s
+        res[os.path.basename(os.path.dirname(f))] = json.load(open(f))
     if not res:
         raise SystemExit(f"no finished runs in {a.out}")
-    fmt = lambda s, k: f"{s[k]['success'] * 100:5.1f} [{s[k]['ci95'][0] * 100:4.1f}, {s[k]['ci95'][1] * 100:4.1f}]"
-    order = lambda n: (0 if n == "C" else 1 if n == "Ceil" else 2, n[:2], re.sub(r"\d+$", "", n), int((re.findall(r"\d+$", n) or [0])[0]))
-    print(f"{'run':12s} {'seen % [95% CI]':>22s} {'blue % [95% CI]':>22s}")
-    for n in sorted(res, key=order):
-        print(f"{n:12s} {fmt(res[n], 'seen'):>22s} {fmt(res[n], 'heldout'):>22s}")
-    cands = {int(n[6:]): res[n]["heldout"]["success"] for n in res if re.fullmatch(r"L2_CNa\d+", n)}
-    if cands:
-        best = max(cands, key=lambda t: (cands[t], -t))
-        print(f"\nchosen t_min (L2, C+N+amb): {best} of 100 -> SmolVLA --ambient_t_min {flow_t(best):.2f}")
-        print("mapping:", ", ".join(f"t={t}: {flow_t(t):.2f}" for t in sorted(cands)))
+    groups = {}   # seeds: <name>_s<k> joins <name>
+    for n, s in res.items():
+        groups.setdefault(re.sub(r"_s\d+$", "", n), []).append((s["seen"]["success"], s["heldout"]["success"]))
+
+    def key(n):
+        return (n.split("_")[0], re.sub(r"\d+$", "", n), int(re.findall(r"\d+$", n)[0]) if re.search(r"\d$", n) else -1)
+    print(f"{'run':14s} {'seeds':>5s} {'seen %':>16s} {'blue %':>16s}   (mean ± std over seeds; single seed: value)")
+    for n in sorted(groups, key=key):
+        v = np.array(groups[n]) * 100
+        f = lambda c: f"{v[:, c].mean():5.1f} ± {v[:, c].std():4.1f}" if len(v) > 1 else f"{v[0, c]:5.1f}       "
+        print(f"{n:14s} {len(v):5d} {f(0):>16s} {f(1):>16s}")
+    for row, pre in (("4 clean", "L2_CNa"), ("0 clean", "L2_Na"), ("24 clean", "K24_Na")):
+        c = {int(n[len(pre):]): np.mean([b for _, b in groups[n]]) for n in groups if re.fullmatch(pre + r"\d+", n)}
+        if c:
+            best = max(c, key=c.get)
+            print(f"best t_min, {row}: {best} (blue {c[best] * 100:.1f}%) -> SmolVLA --ambient_t_min {flow_t(best):.2f}")
+    print("mapping:", ", ".join(f"t={t}: {flow_t(t):.2f}" for t in (10, 25, 50, 75, 90)))
 
 
 if __name__ == "__main__":
