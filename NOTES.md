@@ -271,7 +271,8 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 
 ### First results (2026-10-09, in progress)
 - VLA `V0_2cam_unfrozen_30k`, eval step 30k (k = 20): **seen 39.2% [30.9, 48.1], blue 0/60**.
-- VLA `C_blue4` probe at 15k: blue accuracy 0.12 (no better than V0 at the probe level); eval pending.
+- VLA `C_blue4` (15k): probe blue 0.12; **eval seen 24.2% [17.4, 32.6], blue 1.7% [0.3, 8.9]** (1/60). Not yet comparable to V0 (only evaluated at 30k): V0 at 15k is queued (`eval_steps`).
+- 2026-10-09 ~14:00: a network blip made the local watcher think the job had ended and try to create a new session (stopped at a login prompt; no VM created; the VM job was unaffected). Fixed: `session_exists` exits instead of answering False when the list can't be read; `wait` retries status. Chain now: Ceil_blue24 → CN_blue4 → V0 eval at 15k → stop (`outputs/colab_chain.log`).
 - Small policy (L2 = phone-like noise): C seen 87.3 / blue 40.0; Ceil 95.3 / 94.7; L2_CN 74.3 / 40.0; L2_CNa25 76.3 / 38.0 (the remaining runs are going).
 
 ## Limitations (2026-10-09)
