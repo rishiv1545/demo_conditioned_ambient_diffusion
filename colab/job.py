@@ -89,6 +89,24 @@ def ensure_cache(name, log):
     open(f"{lc}/LOCAL_COMPLETE", "w").close()
 
 
+CLEAN_BLUE = "sim_blue_v2c_24"   # 24 clean sim demos per blue task; runs use the first clean_blue_per_task of each
+PHONE = "phone_v2"
+
+
+def dataset_specs(cfg):
+    """[(dataset name, train_smolvla --data spec)] for a run: its "data" list, plus the clean blue demos
+    ("clean_blue_per_task": N) and the phone replays ("phone": "all" | "blue")."""
+    out = [(d, f"data/lerobot/{d}") for d in cfg["data"]]
+    n = cfg.get("clean_blue_per_task", 0)
+    if n:
+        out.append((CLEAN_BLUE, f"data/lerobot/{CLEAN_BLUE}?per_task={n}"))
+    phone = cfg.get("phone")
+    if phone:
+        assert phone in ("all", "blue"), f"phone must be 'all' or 'blue', not {phone!r}"
+        out.append((PHONE, f"data/lerobot/{PHONE}" + ("?cube=blue" if phone == "blue" else "")))
+    return out
+
+
 def latest_step(run_dir):
     steps = [int(os.path.basename(d)[5:]) for d in glob.glob(f"{run_dir}/step_*")
              if os.path.exists(f"{d}/trainable.pt")]
@@ -119,8 +137,12 @@ def run_one(name, cfg, defaults, stages, job_id):
               "started": time.strftime("%Y-%m-%d %H:%M:%S"), "timings_s": {},
               "commit": subprocess.run("git rev-parse --short HEAD", shell=True, cwd=REPO,
                                        capture_output=True, text=True).stdout.strip()}
-    data = [os.path.join("data", "lerobot", d) for d in cfg["data"]]
+    specs = dataset_specs(cfg)
     train_args = f"{defaults['train']} {cfg.get('train', '')}"
+    if cfg.get("ambient"):
+        t = defaults.get("ambient_t_min")
+        assert t, f"{name}: ambient run but defaults.ambient_t_min is not set (choose it from the small-policy sweep)"
+        train_args += f" --ambient_t_min {t}"
     eval_k = cfg.get("eval_k", defaults.get("eval_k", 20))
     with open(f"{run_dir}/job.log", "a") as log:
         log.write(f"\n===== {status['started']} job {job_id} run {name} commit {status['commit']} stages {stages}\n")
@@ -130,16 +152,16 @@ def run_one(name, cfg, defaults, stages, job_id):
                 write_json(status_path, status)
                 t0 = time.time()
                 if st == "data":
-                    for d in cfg["data"]:
+                    for d, _ in specs:
                         ensure_dataset(d, log)
                 elif st == "cache":
                     if "--features raw" not in train_args:
-                        for d in cfg["data"]:
+                        for d, _ in specs:
                             ensure_cache(d, log)
                 elif st == "train":
                     if cfg.get("init_from") and not latest_step(run_dir):
                         init_from(cfg["init_from"], run_dir, log)
-                    sh(f"python vla/train_smolvla.py --run_name {name} --data {' '.join(data)} --out {OUT} "
+                    sh(f"python vla/train_smolvla.py --run_name {name} --data {' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} "
                        f"{train_args}", log)
                 elif st == "probe":
                     probe_args = cfg.get("probe", defaults.get("probe", ""))

@@ -4,9 +4,12 @@
 
 The challenge asks us to show VLA/world-model knowledge; a small state-based policy doesn't. The headline model is now **SmolVLA** (`lerobot/smolvla_base`, about 450M params) post-trained in our MuJoCo task, from images, robot state and a language instruction. The Phase 1 diffusion policy stays as a **mechanism study** in the README:
 - the encoder-shortcut diagnosis (10 cm probe, rejected copycat hypothesis, bilinear fix with before/after numbers), and
-- an ambient-loss validation on synthetic noise. **Not done yet:** this has to be run on the small policy (corrupt a fraction of sim demos with known noise, compare the naive loss with t_min).
+- the ambient-loss sweep on synthetic noise (step 4b), which also picks t_min for the VLA runs.
 
-Training runs on **Google Colab** (free T4 first; Colab Pro L4/A100 if the timing says so). No AWS. Development and evaluation also run locally on the M4 Pro.
+Training runs on a **Colab A100**, driven from the Mac (`colab/dcad.py`, run registry `colab/runs.json`). No AWS. The small-policy sweeps run on the Mac (MPS), costing no Colab units.
+
+## Main question (reframed 2026-10-09)
+Not "phone demo vs robot demo", but: **can noisy demonstrations improve post-training when clean data is scarce, and does the ambient loss make them usable?** Phone replays are the realistic noise source. The scarce-data case is the held-out blue cube: the sim-only model (V0) does not ground "blue" at all (probe: blue accuracy 0.03–0.12 from 12.5k to 30k steps, below chance, while red/green reach 0.8–0.94).
 
 ## Task and split (unchanged)
 - 3 cubes, 3 zones, 9 tasks. **Object split:** the blue cube is never a target in sim demos (but is a distractor in every scene). Seen = the 6 red/green tasks; held out = blue-yellow, blue-purple, blue-orange.
@@ -30,18 +33,34 @@ Training runs on **Google Colab** (free T4 first; Colab Pro L4/A100 if the timin
 - Implemented in our training loop by passing `time=` to `SmolVLAPolicy.forward` (no LeRobot source patch), behind `--ambient_t_min` (0 = off), with a unit test.
 
 ### 4. Runs
-- **V0**: sim only. **V1**: sim + phone, naive. **V2**: sim + phone, ambient.
-- Evaluate seen vs held-out (blue) success with the same protocol: fixed eval seeds, 20 episodes per task for intermediate checks, 50 for final numbers, Wilson 95% CIs.
-- **V0 on blue tasks = the zero-shot language-grounding check** (does "blue" transfer from pre-training without any blue demos?).
+**4a. VLA runs** (same recipe and steps as V0 = `V0_2cam_unfrozen`: VLM language layers unfrozen at lr 1e-5, expert 1e-4 constant, batch 32, 15k steps; the 30k continuation showed no further probe gain after 15k). Red/green sim data (`sim_seen_v2c_100`, 100/task) in all runs:
 
-### 5. Colab practicalities
-- Keep SmolVLA's default frozen vision encoder; train the action expert as the defaults do (`train_expert_only=True`).
-- Don't assume 20k steps. Find the step count where held-out success stops improving (start around 2–5k), evaluating saved checkpoints.
-- Checkpoint to Google Drive frequently (model, optimizer, scheduler, step, RNG) and support `--resume`, so a disconnect costs minutes.
-- `colab/train_smolvla.ipynb`: clone the repo, install, mount Drive, train/eval a chosen config (V0/V1/V2).
-- **First: time a 500-step fine-tune on the Mac (MPS) and on a Colab T4**, and project the time for the full V0–V2 plan, so the user can decide on Colab Pro.
+| run (`runs.json`) | blue data | loss |
+|---|---|---|
+| V0 (`V0_2cam_unfrozen`) | none | standard |
+| **C** (`C_blue4`) | 4 clean sim demos per blue task | standard |
+| **C+N** (`CN_blue4`) | C + all phone replays (4 per red/green task, 8 per blue task) | naive |
+| **C+N+amb** (`CNamb_blue4`) | same as C+N | ambient, t_min from 4b |
+| **N+amb** (`Namb`) | phone replays for blue only, no clean blue | ambient |
+| **Ceiling** (`Ceil_blue24`) | 24 clean sim demos per blue task | standard |
 
-### 6. Stretch (only after V0–V2): demo-prompted SmolVLA
+- The number of clean blue demos is `clean_blue_per_task` in `runs.json` (first N per task of `sim_blue_v2c_24`); `phone: all | blue` picks the phone replays; `ambient: true` uses `defaults.ambient_t_min`.
+- Report **seen and blue success** for each (fixed eval seeds, 20 episodes/task intermediate, 50 final, Wilson 95% CIs), plus the per-cube grounding probe.
+
+**4b. Small-policy sweep (Mac)** (`scripts/run_ambient_sweep.sh`, table + t_min: `scripts/summarize_ambient_sweep.py`): the same C / C+N / C+N+amb / N+amb / Ceiling structure on the small diffusion policy (20 sim demos per red/green task, 4 clean per blue task), with synthetic phone-like noise (per-episode xy/z offset, jitter, gripper timing) at three levels (0.4×, 1× = 2.5 cm xy as measured on phone replays, 2×) and t_min ∈ {10, 25, 50, 75} of T = 100. t_min for the VLA = the best C+N+amb setting at the 1× level, mapped to flow-matching time by matching the noise-to-signal ratio (DDPM √(1−ᾱ_t)/√ᾱ_t = τ/(1−τ); t = 25 → τ = 0.31, 50 → 0.51).
+
+### 5. Colab practicalities (as built)
+- A100 via the colab CLI: `python colab/dcad.py run <runs...>` runs data → vision cache → train → probe → eval detached, all state on Drive, resumable; `wait --stop` fetches results and stops the VM (Drive is flushed first). Details in NOTES.md ("Colab pipeline").
+- Frozen-VLM training (SmolVLA default) did not ground language; unfreezing the language layers (SigLIP + connector frozen, so the vision cache stays valid) is the recipe.
+- 0.187 s/step on the A100 (15k steps ≈ 47 min); eval renders only when a new action chunk is planned.
+
+### 6. Stretch (only after the 4a runs): demo-prompted SmolVLA
 - Replace the language instruction with 2–3 keyframe images (start, grasp, release) from a **different** demo of the same task, fed through SmolVLA's existing multi-image input. Train with prompts drawn from other episodes of the same task (the Phase 1 context sampler).
 - Evaluate with prompts from (a) sim renders, (b) phone-replay renders, (c) raw phone frames.
 - Fallback if images are too slow on Colab: serialize the demo trajectory as about 16 text waypoints in the instruction.
+
+## Limitations
+- The phone data comes from a **controlled, marker-calibrated setup**: a fixed top-down camera at a measured height, ArUco markers giving metric table coordinates in every frame, known object heights, a flat uncluttered table, one hand, and an exaggerated pinch protocol. Its noise (≈ 2–4 cm grasp offsets, gripper timing) therefore **understates the gap to in-the-wild human video** (moving or unknown cameras, no metric scale, occlusion, clutter, different embodiments and grasps). A positive result shows that moderately noisy demonstrations can be made useful, not that arbitrary human video can.
+- Phone demos are retargeted and replayed in sim, then re-rendered: the VLA never sees real phone pixels, so this tests action noise, not the visual domain gap.
+- One task family (pick-and-place of 3 cubes into 3 zones), one held-out object, and single training seeds for the VLA runs.
+

@@ -254,6 +254,11 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 - Smoke run (`smoke`, 50 steps): data 0 s (already extracted), **cache 654 s** (build 578 s on the A100 vs 3.3 h on MPS, + copy to Drive), train 95 s, probe 58 s, eval 944 s (before the render fix).
 - `vla/build_cache.py`: one pass over the video for all cameras (was one decode pass per camera) with progress lines; `tests/test_feature_cache.py` passes.
 
+## Limitations (2026-10-09)
+- **The phone data comes from a controlled, marker-calibrated setup**, so it understates the gap to in-the-wild human video. Fixed top-down phone at a measured height (43 cm, 0.5× lens), ArUco markers giving metric table coordinates in every frame, known object sizes and heights, a flat uncluttered table, a single right hand, and a recording protocol (exaggerated open/close, pauses) designed for the pipeline. In-the-wild video has moving/unknown cameras, no metric scale, occlusion, clutter and different grasps. Measured noise here: ≈ 2–4 cm grasp offsets and gripper timing errors; session 2 replays 2/3.
+- Phone demos are retargeted and replayed in sim and re-rendered for the VLA, so the experiment tests demonstration (action) noise, not the visual domain gap.
+- One task family, one held-out object (blue), single seeds for the VLA runs (the small-policy sweep is the cheaper place to check variance).
+
 ## Current status / resume here (2026-10-09 ~10:00)
 - Colab CLI logged in (`~/.local/bin/colab`). OAuth gotcha: if the consent screen grants fewer scopes than requested, `oauthlib` raises "Scope has changed" and nothing is saved; tick every box (or `OAUTHLIB_RELAX_TOKEN_SCOPE=1`). The CLI hard-codes a DEBUG file log with token material at `~/.config/colab-cli/colab.log`: deleted and replaced by a symlink to `/dev/null` (2026-10-09). Credentials live in `~/.config/colab-cli/token.json`.
 - Repo is **public** now (the VM clones without a token). The sim dataset is on Drive as `dcad/datasets/sim_seen_v2c_100.tar`.

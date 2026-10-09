@@ -17,7 +17,8 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from vla.common import (base_config, build_policy, list_checkpoints, load_trainable, open_datasets, pick_device,  # noqa: E402
+from vla.common import (base_config, build_policy, frames_of_episodes, list_checkpoints, load_trainable, open_datasets,
+                        parse_data_spec, pick_device, selected_episodes,  # noqa: E402
                         save_checkpoint, save_run_config)
 
 import numpy as np  # noqa: E402
@@ -74,18 +75,26 @@ def main():
     os.makedirs(run_dir, exist_ok=True)
 
     chunk = base_config().chunk_size
-    dss, stats = open_datasets(a.data, chunk)
+    specs = [parse_data_spec(d) for d in a.data]      # "root?per_task=4&cube=blue" selects episodes of a dataset
+    roots = [r for r, _ in specs]
+    dss, stats = open_datasets(roots, chunk)          # normalization stats from the full datasets
     features = dss[0].meta.features
     policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype, unfreeze_vlm=bool(a.unfreeze_vlm))
     img_keys = list(cfg.image_features)
     if a.features == "cache":
-        for root in a.data:
+        for root in roots:
             if not has_cache(root, img_keys):
                 t_c = time.time()
                 build_cache(root, policy, dev)
                 print(f"built vision cache for {root} in {time.time() - t_c:.0f}s", flush=True)
-        dss = [CachedChunkDataset(root, chunk, img_keys) for root in a.data]
+        dss = [CachedChunkDataset(root, chunk, img_keys) for root in roots]
         policy = use_cached_features(policy)
+    for i, (root, filt) in enumerate(specs):
+        keep = selected_episodes(root, filt)
+        if keep is not None:
+            ep_col = dss[i].ep if a.features == "cache" else dss[i].hf_dataset["episode_index"]
+            dss[i] = torch.utils.data.Subset(dss[i], frames_of_episodes(ep_col, keep))
+            print(f"{root}: {len(keep)} episodes selected by {filt}", flush=True)
     save_run_config(run_dir, vars(a), {k: dict(v) for k, v in features.items()}, stats)
     n_train = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     n_all = sum(p.numel() for p in policy.parameters())

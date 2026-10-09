@@ -56,13 +56,21 @@ def detect_markers(frame, detector=None):
     detector = detector or cv2.aruco.ArucoDetector(cv2.aruco.getPredefinedDictionary(DICT),
                                                    cv2.aruco.DetectorParameters())
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    corners, ids, _ = detector.detectMarkers(gray)
     out = {}
-    if ids is not None:
-        for c, i in zip(corners, ids.ravel()):
-            if 0 <= i <= 3:
-                out[int(i)] = c[0].mean(0)
+    # second pass with local contrast enhancement for markers washed out by glare (session 3, marker 3: never found
+    # plain, found in 13-21% of frames with CLAHE; the gaps are interpolated)
+    for g in (gray, _CLAHE.apply(gray)):
+        corners, ids, _ = detector.detectMarkers(g)
+        if ids is not None:
+            for c, i in zip(corners, ids.ravel()):
+                if 0 <= i <= 3 and int(i) not in out:
+                    out[int(i)] = c[0].mean(0)
+        if len(out) == 4:
+            break
     return out
+
+
+_CLAHE = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
 
 
 def video_homographies(frames, marker_xy, smooth=9):

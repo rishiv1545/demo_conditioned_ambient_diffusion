@@ -32,6 +32,47 @@ def base_config():
     return PreTrainedConfig.from_pretrained(BASE)
 
 
+def parse_data_spec(spec):
+    """"root" or "root?per_task=4&cube=blue" -> (root, filters). per_task keeps the first N episodes of each task
+    (episode order); cube keeps tasks whose target cube is in the comma list. Used to vary the amount of clean
+    held-out data without exporting a dataset per amount."""
+    root, _, q = spec.partition("?")
+    f = {}
+    for kv in filter(None, q.split("&")):
+        k, v = kv.split("=", 1)
+        if k == "per_task":
+            f[k] = int(v)
+        elif k == "cube":
+            f[k] = set(v.split(","))
+        else:
+            raise ValueError(f"unknown data filter {k!r} in {spec!r} (per_task, cube)")
+    return root, f
+
+
+def selected_episodes(root, filters):
+    """Episode indices of the dataset at root that pass the filters (None = all), from its episodes.json."""
+    if not filters:
+        return None
+    with open(os.path.join(root, "episodes.json")) as fh:
+        eps = json.load(fh)["episodes"]
+    keep, count = [], {}
+    for e in sorted(eps, key=lambda e: e["episode_index"]):
+        if "cube" in filters and e["task"].split("-")[0] not in filters["cube"]:
+            continue
+        if count.get(e["task"], 0) >= filters.get("per_task", 10 ** 9):
+            continue
+        count[e["task"]] = count.get(e["task"], 0) + 1
+        keep.append(e["episode_index"])
+    if not keep:
+        raise ValueError(f"no episodes of {root} pass {filters}")
+    return keep
+
+
+def frames_of_episodes(episode_index_per_frame, episodes):
+    """Positions of the frames that belong to the given episodes (for torch.utils.data.Subset)."""
+    return np.flatnonzero(np.isin(np.asarray(episode_index_per_frame).reshape(-1), episodes)).tolist()
+
+
 def open_datasets(roots, chunk_size, fps=10):
     """LeRobotDatasets with action chunks of length chunk_size. Returns (list of datasets, aggregated stats)."""
     from lerobot.datasets.compute_stats import aggregate_stats
@@ -90,7 +131,7 @@ def build_policy(features, stats, device, n_action_steps=None, dtype="auto", unf
 def training_side_info(rc):
     """episodes.json of the run's (first) training dataset: held-out split and env version. Must exist: without it
     eval/probe would silently use the v1 env (old gripper orientation/start state)."""
-    path = os.path.join(rc["args"]["data"][0], "episodes.json")
+    path = os.path.join(parse_data_spec(rc["args"]["data"][0])[0], "episodes.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"{path} not found: download/export the run's training dataset first "
                                 f"(on Colab: run the dataset-download cell)")

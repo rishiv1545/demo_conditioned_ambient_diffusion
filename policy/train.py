@@ -85,6 +85,9 @@ def main():
     p.add_argument("--ambient_t_min", type=int, default=0,
                    help="ambient loss: samples with sigma_n != 0 (human/synthetic) draw t from [t_min, T); 0 = off")
     p.add_argument("--sim_per_task", type=int, default=20)
+    p.add_argument("--clean_heldout_per_task", type=int, default=0,
+                   help="clean sim demos per held-out task (scarce clean data; the first N, disjoint from the "
+                        "synthetic noisy demos, which make_synthetic_noisy.py draws from index --skip on)")
     p.add_argument("--device", default="auto")
     p.add_argument("--out", default="checkpoints")
     for k, v in asdict(TrainConfig()).items():
@@ -102,6 +105,9 @@ def main():
     if "sim" in sources:
         eps += load_episodes(a.data, {"sources": ["sim"], "tasks": sim_task_list(a.sim_tasks, heldout),
                                       "max_per_task": {"sim": a.sim_per_task}})
+        if a.clean_heldout_per_task > 0:
+            eps += load_episodes(a.data, {"sources": ["sim"], "tasks": heldout,
+                                          "max_per_task": {"sim": a.clean_heldout_per_task}})
     for noisy in [s for s in ("human", "synthetic") if s in sources]:
         eps += load_episodes(a.data, {"sources": [noisy], "tasks": sim_task_list(a.human_tasks, heldout),
                                       "include_failed": bool(a.include_failed)})
