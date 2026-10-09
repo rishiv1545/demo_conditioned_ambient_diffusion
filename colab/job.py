@@ -137,10 +137,10 @@ def init_from(src_name, run_dir, log):
     log.write(f"initialized from {src_name} step {step}\n")
 
 
-def run_one(name, cfg, defaults, stages, job_id):
+def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag=""):
     run_dir = f"{OUT}/{name}"
     os.makedirs(run_dir, exist_ok=True)
-    status_path = f"{run_dir}/job_status.json"
+    status_path = f"{run_dir}/job_status{eval_tag}.json"   # tagged eval-only jobs don't clobber the main status
     status = {"run": name, "job": job_id, "stages": stages, "done": [], "stage": None, "error": None,
               "started": time.strftime("%Y-%m-%d %H:%M:%S"), "timings_s": {},
               "commit": subprocess.run("git rev-parse --short HEAD", shell=True, cwd=REPO,
@@ -177,10 +177,11 @@ def run_one(name, cfg, defaults, stages, job_id):
                        f"--log {run_dir}/probe.txt", log)
                 elif st == "eval" and eval_k > 0:
                     for step in cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
-                        if os.path.exists(f"{run_dir}/eval_step{step:06d}_k{eval_k}/summary.json"):
+                        ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{eval_tag}"
+                        if os.path.exists(f"{ed}/summary.json"):
                             continue
                         sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {eval_k} "
-                           f"--out {run_dir}/eval_step{step:06d}_k{eval_k} --device cuda", log)
+                           f"--out {ed} --device cuda {eval_args}", log)
                 status["timings_s"][st] = round(time.time() - t0)
                 status["done"].append(st)
             status["stage"] = "finished"
@@ -197,6 +198,8 @@ def main():
     p.add_argument("runs", nargs="+")
     p.add_argument("--stages", default=",".join(STAGES))
     p.add_argument("--job_id", default=time.strftime("%Y%m%d-%H%M%S"))
+    p.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
+    p.add_argument("--eval_tag", default="", help="suffix for eval dirs and the status file, e.g. _nas5")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
     assert set(stages) <= set(STAGES), f"stages must be in {STAGES}"
@@ -206,12 +209,13 @@ def main():
     assert not missing, f"unknown runs {missing}; add them to colab/runs.json"
     os.makedirs(f"{DRIVE}/jobs", exist_ok=True)
     job_path = f"{DRIVE}/jobs/{a.job_id}.json"
-    job = {"job": a.job_id, "runs": a.runs, "stages": stages, "pid": os.getpid(), "state": "running", "results": {}}
+    job = {"job": a.job_id, "runs": a.runs, "stages": stages, "pid": os.getpid(), "state": "running", "results": {},
+           "eval_tag": a.eval_tag}
     write_json(job_path, job)
     for r in a.runs:
         job["current"] = r
         write_json(job_path, job)
-        s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id)
+        s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag)
         job["results"][r] = {"error": s["error"], "done": s["done"]}
     job["current"] = None
     job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"

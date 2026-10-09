@@ -161,7 +161,8 @@ def argv(p):
 busy = [p.split("/")[2] for p in glob.glob("/proc/[0-9]*/cmdline") if b"colab/job.py" in argv(p)[1:2]]
 assert not busy, f"a job is already running on this VM (pids {{busy}}); one GPU job at a time"
 log = open("/content/job_{job_id}.out", "w")
-p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}"],
+p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}",
+                      "--eval_args", {a.eval_args!r}, "--eval_tag", {a.eval_tag!r}],
                      cwd="{REMOTE}", stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
                      env={{**os.environ, **{env!r}}})
 print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
@@ -189,7 +190,8 @@ if job["state"] == "running" and not alive:
 print("JOB", job["job"], "state", job["state"], "runs", job["runs"], "current", job.get("current"))
 for r in job["runs"]:
     d = f"{OUT}/{{r}}"
-    s = json.load(open(f"{{d}}/job_status.json")) if os.path.exists(f"{{d}}/job_status.json") else {{}}
+    sp = f"{{d}}/job_status{{job.get('eval_tag', '')}}.json"
+    s = json.load(open(sp)) if os.path.exists(sp) else {{}}
     if s.get("job") != job["job"]:
         print(f"-- {{r}}: not started"); continue
     print(f"-- {{r}}: stage {{s['stage']}} done {{s['done']}} timings {{s['timings_s']}} error {{s['error']}}")
@@ -222,7 +224,8 @@ def cmd_fetch(a):
         files = remote(f"""
 import glob, os
 d = "{OUT}/{run}"
-fs = [f for f in ["run.json", "loss.csv", "probe.txt", "job_status.json", "job.log"] if os.path.exists(f"{{d}}/{{f}}")]
+fs = [f for f in ["run.json", "loss.csv", "probe.txt", "job.log"] if os.path.exists(f"{{d}}/{{f}}")]
+fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/job_status*.json")]
 fs += [os.path.relpath(p, d) for p in glob.glob(f"{{d}}/eval_*/summary.json") + glob.glob(f"{{d}}/eval_*/episodes.csv")]
 print("\\n".join(fs))
 """, a.session).split()
@@ -285,7 +288,10 @@ def main():
     s.add_argument("--no_sync", action="store_true", help="don't touch the VM's code (e.g. while a job runs)")
     s.set_defaults(f=cmd_push_data)
     s = sub.add_parser("run"); s.add_argument("runs", nargs="+"); s.add_argument("--gpu", default="A100")
-    s.add_argument("--stages", default="data,cache,train,probe,eval"); s.set_defaults(f=cmd_run)
+    s.add_argument("--stages", default="data,cache,train,probe,eval")
+    s.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
+    s.add_argument("--eval_tag", default="", help="suffix for this job's eval dirs, e.g. _nas5")
+    s.set_defaults(f=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job"); s.add_argument("--lines", type=int, default=12)
     s.set_defaults(f=cmd_status)
     s = sub.add_parser("fetch"); s.add_argument("runs", nargs="+"); s.set_defaults(f=cmd_fetch)
