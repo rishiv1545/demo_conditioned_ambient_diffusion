@@ -202,6 +202,8 @@ def main():
     p.add_argument("--eval_tag", default="", help="suffix for eval dirs and the status file, e.g. _nas5")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
+    if any(st in stages for st in ("cache", "train", "probe", "eval")) and "data" not in stages:
+        stages = ["data"] + stages   # every later stage needs the datasets (episodes.json) on this VM
     assert set(stages) <= set(STAGES), f"stages must be in {STAGES}"
     assert os.path.isdir("/content/drive/MyDrive"), "Drive is not mounted (run `colab drivemount -s <session>`)"
     reg = load_runs()
