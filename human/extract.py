@@ -180,6 +180,10 @@ def grasp_interval(ap, fps, close_frac=0.6, open_frac=0.5, spread_pct=97, grasp_
         m = float(np.median(ap[tc:tc + max(1, int(grasp_s * fps))]))
         o = m + open_frac * (spread - m)
         above = np.flatnonzero(ap[tc:] > o)
+        if len(above) == 0:   # release opening smaller than the pickup spread (thin object): half the margin
+            o = m + 0.5 * open_frac * (spread - m)
+            above = np.flatnonzero(ap[tc:] > o)
+            info.update(note="release detected with half the open margin")
         if len(above) == 0:
             info.update(note="no reopening after the first close")
             break
