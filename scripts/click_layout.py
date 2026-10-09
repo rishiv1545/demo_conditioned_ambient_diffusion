@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np  # noqa: E402
 
-from human.calibrate import camera_ground_xy, load_session, read_video, video_homographies, warp_topdown  # noqa: E402
+from human.calibrate import (camera_ground_xy, load_session, read_video, start_homography, video_homographies,  # noqa: E402
+                             warp_topdown)
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import parallax_correct  # noqa: E402
 from human.objects import ORDER, layout_json_path, list_clips, parse_clip, save_layout_json, session_specs  # noqa: E402
@@ -47,9 +48,8 @@ def main():
     todo = [c for c in clips if a.redo or not os.path.exists(layout_json_path(a.session, c))]
     print(f"{len(todo)} clips to click ({len(clips) - len(todo)} already done)")
     for i, clip in enumerate(todo):
-        frames, _ = read_video(os.path.join(a.session, clip), max_frames=15)
-        Hs, _ = video_homographies(frames, s["marker_xy"])
-        top, A = warp_topdown(frames[0], Hs[0], ppm=PPM)
+        frame0, H0 = start_homography(os.path.join(a.session, clip), s["marker_xy"])
+        top, A = warp_topdown(frame0, H0, ppm=PPM)
         task = parse_clip(clip)
         clicks, status = collect_clicks(top, ORDER, title=f"layout {i + 1}/{len(todo)}: {clip}", labels=labels,
                                         hint=f"task {task}; click top-center of objects, center of zones")

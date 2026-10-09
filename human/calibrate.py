@@ -98,6 +98,18 @@ def video_homographies(frames, marker_xy, smooth=9):
     return Hs, found.mean(0)
 
 
+def start_homography(path, marker_xy, n=15):
+    """(first frame, its image->table homography) from the first n frames; if a marker is missing there (e.g. washed
+    out by glare and only found later), from the whole clip (fixed camera: the earliest detection is carried back)."""
+    frames, _ = read_video(path, max_frames=n)
+    try:
+        Hs, _ = video_homographies(frames, marker_xy)
+    except RuntimeError:
+        frames, _ = read_video(path)
+        Hs, _ = video_homographies(frames, marker_xy)
+    return frames[0], Hs[0]
+
+
 def to_table(H, px):
     """Map image points [N, 2] (or [2]) to the table plane with homography H."""
     p = np.asarray(px, dtype=np.float64).reshape(-1, 2)

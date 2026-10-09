@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
-from human.calibrate import camera_ground_xy, load_session, read_video, video_homographies, warp_topdown  # noqa: E402
+from human.calibrate import (camera_ground_xy, load_session, read_video, start_homography, video_homographies,  # noqa: E402
+                             warp_topdown)
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import detect_objects  # noqa: E402
 from human.objects import ORDER, hsv_ranges_from_samples, list_clips, sample_patch, session_specs  # noqa: E402
@@ -27,10 +28,9 @@ PPM = 1600
 
 
 def first_frame_topdown(path, marker_xy, n=15):
-    frames, _ = read_video(path, max_frames=n)
-    Hs, _ = video_homographies(frames, marker_xy)
-    top, A = warp_topdown(frames[0], Hs[0], ppm=PPM)
-    return frames[0], Hs[0], top, A
+    frame0, H0 = start_homography(path, marker_xy, n)
+    top, A = warp_topdown(frame0, H0, ppm=PPM)
+    return frame0, H0, top, A
 
 
 def update_session_json(sdir, ranges):
