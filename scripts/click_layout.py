@@ -59,7 +59,7 @@ def main():
         if status == "skip":
             print(f"{clip}: skipped")
             continue
-        xy = clicks_to_table(clicks, A, specs, camera_ground_xy(Hs[0], frames[0].shape), s["camera_height"])
+        xy = clicks_to_table(clicks, A, specs, camera_ground_xy(H0, frame0.shape), s["camera_height"])
         save_layout_json(layout_json_path(a.session, clip), xy, {"clip": clip, "source": "manual_click"})
         print(f"{clip}: saved")
 
