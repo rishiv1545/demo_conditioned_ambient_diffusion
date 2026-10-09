@@ -168,9 +168,11 @@ def run_one(name, cfg, defaults, stages, job_id):
                     sh(f"python vla/probe_grounding.py --run {run_dir} --step all --device cuda {probe_args} "
                        f"--log {run_dir}/probe.txt", log)
                 elif st == "eval" and eval_k > 0:
-                    step = latest_step(run_dir)
-                    sh(f"python vla/eval_smolvla.py --run {run_dir} --step latest --k {eval_k} "
-                       f"--out {run_dir}/eval_step{step:06d}_k{eval_k} --device cuda", log)
+                    for step in cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
+                        if os.path.exists(f"{run_dir}/eval_step{step:06d}_k{eval_k}/summary.json"):
+                            continue
+                        sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {eval_k} "
+                           f"--out {run_dir}/eval_step{step:06d}_k{eval_k} --device cuda", log)
                 status["timings_s"][st] = round(time.time() - t0)
                 status["done"].append(st)
             status["stage"] = "finished"

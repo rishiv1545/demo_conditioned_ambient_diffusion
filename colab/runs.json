@@ -1,5 +1,5 @@
 {
-  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args).",
+  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args).",
   "defaults": {
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
     "eval_k": 20,
@@ -18,7 +18,11 @@
         "sim_seen_v2c_100"
       ],
       "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 30000",
-      "init_from": "V0_2cam_unfrozen"
+      "init_from": "V0_2cam_unfrozen",
+      "eval_steps": [
+        15000,
+        30000
+      ]
     },
     "C_blue4": {
       "data": [
