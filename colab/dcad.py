@@ -68,7 +68,12 @@ def pushed_head():
 
 
 def session_exists(session):
-    out = colab("sessions", check=False)
+    """Whether the named session is running. Exits (never answers False) if the session list can't be read, e.g.
+    a network blip: answering False would make `up` create a second, billed VM."""
+    r = subprocess.run([COLAB, "sessions"], stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    out = r.stdout
+    if r.returncode != 0 or "Traceback" in r.stderr or "authorize" in (r.stdout + r.stderr):
+        sys.exit(f"could not list Colab sessions (network or login problem); not creating one:\n{r.stderr[-500:]}")
     return any(line.startswith(f"[{session}] ") for line in out.splitlines())   # "[dcad] gpu-a100-... | Hardware: ..."
 
 
@@ -221,8 +226,18 @@ print("\\n".join(fs))
 
 
 def cmd_wait(a):
+    fails = 0
     while True:
-        out = status(a, 3)
+        try:
+            out = status(a, 3)
+            fails = 0
+        except SystemExit as e:   # network blip: keep waiting; give up only after ~30 min of failures
+            fails += 1
+            print(time.strftime("%H:%M"), f"status failed ({fails}): {str(e)[:120]}", flush=True)
+            if fails >= 6:
+                raise
+            time.sleep(a.every * 60)
+            continue
         first = out.splitlines()[0] if out else ""
         print(time.strftime("%H:%M"), first, flush=True)
         if "state running" not in first:
