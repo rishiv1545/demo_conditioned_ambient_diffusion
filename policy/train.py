@@ -56,6 +56,8 @@ def sim_task_list(spec, heldout):
         return [t for t in ALL_TASKS if t not in heldout]
     if spec == "all":
         return list(ALL_TASKS)
+    if spec == "heldout":
+        return list(heldout)
     return [parse_task(s) for s in spec.split(",")]
 
 
@@ -79,7 +81,7 @@ def main():
     p.add_argument("--data", nargs="+", default=["data/sim"])
     p.add_argument("--sources", default="sim", help="comma list of sources: sim,human")
     p.add_argument("--sim_tasks", default="seen", help="tasks to use sim demos for: seen | all | comma list")
-    p.add_argument("--human_tasks", default="all", help="tasks to use human demos for: seen | all | comma list")
+    p.add_argument("--human_tasks", default="all", help="tasks to use human demos for: seen | heldout | all | comma list")
     p.add_argument("--heldout", default=DEFAULT_SPLIT, help="object | combo | object:<cube> | zone:<zone> | task list")
     p.add_argument("--include_failed", type=int, default=1, help="keep failed human replays (1) or drop them (0)")
     p.add_argument("--ambient_t_min", type=int, default=0,
