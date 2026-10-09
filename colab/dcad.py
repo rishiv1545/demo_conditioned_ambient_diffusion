@@ -103,10 +103,18 @@ def cmd_push_data(a):
         tar = os.path.join(td, f"{name}.tar")
         subprocess.run(["tar", "-cf", tar, "--exclude", "vision_cache", "-C", os.path.dirname(src),
                         "-s", f"|^{os.path.basename(src)}|{name}|", os.path.basename(src)], check=True)
-        print(f"uploading {os.path.getsize(tar) / 1e6:.0f} MB ...")
-        colab("upload", "-s", a.session, tar, f"/content/{name}.tar", capture=False)
+        # the Jupyter contents API rejects large single uploads (a 456 MB file got HTTP 400): send 64 MB parts
+        subprocess.run(["split", "-b", "64m", tar, os.path.join(td, "part_")], check=True)
+        os.remove(tar)
+        parts = sorted(f for f in os.listdir(td) if f.startswith("part_"))
+        remote(f"import os, shutil; shutil.rmtree('/content/upload_{name}', True); os.makedirs('/content/upload_{name}')",
+               a.session)
+        for i, part in enumerate(parts):
+            print(f"uploading part {i + 1}/{len(parts)}", flush=True)
+            colab("upload", "-s", a.session, os.path.join(td, part), f"/content/upload_{name}/{part}")
     print(remote(f"""
-import os, shutil
+import os, shutil, subprocess
+subprocess.run("cat /content/upload_{name}/part_* > /content/{name}.tar && rm -r /content/upload_{name}", shell=True, check=True)
 os.makedirs("{DRIVE}/datasets", exist_ok=True)
 if os.path.exists("{DRIVE}/datasets/{name}.tar"):   # replacing a dataset invalidates its cache (a first upload of
     shutil.rmtree("{DRIVE}/vision_cache/{name}_bf16", ignore_errors=True)   # a Hub dataset keeps the existing one)
