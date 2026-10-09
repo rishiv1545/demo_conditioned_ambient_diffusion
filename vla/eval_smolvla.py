@@ -15,7 +15,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
-                        pick_device)
+                        pick_device, training_side_info)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -102,8 +102,7 @@ def main():
     dev = pick_device(a.device)
     os.makedirs(a.out, exist_ok=True)
     rc = load_run_config(a.run)
-    side_path = os.path.join(rc["args"]["data"][0], "episodes.json")
-    side = json.load(open(side_path)) if os.path.exists(side_path) else {}
+    side = training_side_info(rc)
     spec = a.heldout or (",".join(side["heldout"]) if "heldout" in side else DEFAULT_SPLIT)
     env_cfg = env_config(side.get("env_cfg"))   # the env version of the training data (absent: v1)
     cams, size = image_spec(rc["features"])

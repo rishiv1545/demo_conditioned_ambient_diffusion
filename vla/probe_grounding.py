@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
-                        pick_device)
+                        pick_device, training_side_info)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -43,8 +43,7 @@ def main():
     while a.watch and not os.path.exists(os.path.join(a.run, "run.json")):
         time.sleep(30)                         # training hasn't started writing the run yet
     rc = load_run_config(a.run)
-    side = os.path.join(rc["args"]["data"][0], "episodes.json")
-    env = PickPlaceEnv(env_config(json.load(open(side)).get("env_cfg") if os.path.exists(side) else None))
+    env = PickPlaceEnv(env_config(training_side_info(rc).get("env_cfg")))
     policy, pre, post, _ = build_policy(rc["features"], rc["stats"], dev)
     cams, size = image_spec(rc["features"])
     policy.eval()

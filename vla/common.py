@@ -84,6 +84,17 @@ def build_policy(features, stats, device, n_action_steps=None, dtype="auto", unf
     return policy, pre, post, cfg
 
 
+def training_side_info(rc):
+    """episodes.json of the run's (first) training dataset: held-out split and env version. Must exist: without it
+    eval/probe would silently use the v1 env (old gripper orientation/start state)."""
+    path = os.path.join(rc["args"]["data"][0], "episodes.json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"{path} not found: download/export the run's training dataset first "
+                                f"(on Colab: run the dataset-download cell)")
+    with open(path) as f:
+        return json.load(f)
+
+
 def image_spec(features):
     """(camera names, image size) from dataset/policy features ("observation.images.<cam>", shape [H, W, C])."""
     keys = sorted(k for k in features if k.startswith("observation.images."))
