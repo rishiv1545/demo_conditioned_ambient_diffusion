@@ -76,7 +76,7 @@ def main():
 def probe_one(a, policy, pre, post, env, cams, size, st, ck_dir):
     torch.manual_seed(0)
     load_trainable(policy, ck_dir)
-    hits, dists, nearest, nearest_each = [], [], [], []
+    hits, dists, nearest, nearest_each, named = [], [], [], [], []
     for k in range(a.layouts):
         env.reset((0, 0), seed=EVAL_SEED_BASE + 777_000 + k)
         ims = {f"observation.images.{c}": torch.from_numpy(im).permute(2, 0, 1).float()[None] / 255
@@ -94,6 +94,7 @@ def probe_one(a, policy, pre, post, env, cams, size, st, ck_dir):
             g = np.mean(pts, 0)
             d = np.linalg.norm(cubes - g, axis=1)
             hits.append(int(np.argmin(d) == c))
+            named.append(c)
             dists.append(d[c])
             nearest.append(d.min())
     line = (f"step {st:6d}: grounding accuracy {np.mean(hits):.2f} (chance 0.33), "
@@ -101,6 +102,11 @@ def probe_one(a, policy, pre, post, env, cams, size, st, ck_dir):
             f"to the nearest cube of any color {np.median(nearest) * 100:.1f} cm "
             f"(per single sample {np.median(nearest_each) * 100:.1f} cm, <2 cm in "
             f"{np.mean(np.array(nearest_each) < 0.02):.0%})  (n={len(hits)})")
+    hits, dists, named = np.array(hits), np.array(dists), np.array(named)
+    # per named cube: blue is never a target in the sim demos, so its row is the held-out grounding check
+    line += "\n" + "\n".join(f"    {CUBES[c]:6s} accuracy {hits[named == c].mean():.2f}, median distance "
+                               f"{np.median(dists[named == c]) * 100:.1f} cm  (n={int((named == c).sum())})"
+                               for c in range(3))
     print(line, flush=True)
     if a.log:
         with open(a.log, "a") as f:
