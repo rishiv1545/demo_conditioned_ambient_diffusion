@@ -226,12 +226,34 @@ Design decisions, failures and measured numbers. Every number here comes from a 
 - **Probe: results not yet seen.** The background watcher (cell 5) wrote nothing visible (its stderr went to `/content/probe_stdout.txt`, lost on runtime reset). A foreground `--step all --log …` re-probe printed nothing: a bug where the probe skipped every step already listed in the log file even outside `--watch` mode (fixed: skipping only in `--watch`, and it now prints the checkpoints it sees). So `MyDrive/dcad/V0_2cam_unfrozen_probe.txt` may already contain the watcher's results.
 - Colab notebook robustness fixes made on the way: a self-contained clone cell (IPython `$`-expansion leaves the whole line unexpanded if any name is undefined → blank token/repo), a torch sanity check in a fresh process, the Drive cache trusted only with a `COMPLETE` marker, and probe/eval failing loudly if the training dataset's `episodes.json` is missing (no silent fallback to the v1 env).
 
-## Current status / resume here (2026-10-09 ~09:00)
-- **Colab CLI:** `google-colab-cli` 0.7.4 installed with `uv tool install` (`~/.local/bin/colab`, from the official `googlecolab` org). The user completed the browser OAuth (the token exchange is in the CLI log at 08:46), but the running agent session still got a login prompt, so the user is restarting Claude Code. Note: `~/.config/colab-cli/colab.log` contains token material in plain text (debug logging); suggest deleting it once auth works. `colab drivemount` is interactive-only: the user must run it for each new CLI session.
-- **Next steps:**
-  1. Verify auth with `colab sessions`.
-  2. `colab new -s dcad --gpu A100` (billable) → the user runs `colab drivemount -s dcad` → clone the private repo (a GitHub token is needed on the VM: ask the user how to provide it; Colab notebook Secrets are not available to CLI sessions) → `pip install -r requirements.txt` → download the HF dataset → `python vla/probe_grounding.py --run /content/drive/MyDrive/dcad/checkpoints/vla/V0_2cam_unfrozen --step all --device cuda` (first `cat` the existing probe log on Drive) → if grounding/localization improved, run `vla/eval_smolvla.py … --k 20` → `colab stop -s dcad`.
-  3. Decide the next experiment from the probe (if still at chance: rethink the conditioning; if grounded: evaluate, then V1/V2 once the phone data exists).
-  4. Tomorrow: the user records the 48 phone clips (protocol in RECORDING.md: `corner_ids` [1, 2, 3, 0], 0.5× lens, locked exposure, exaggerated open/close, 0.5 s pauses), then `click_layout.py` → `process_phone.py` (env v2, relative gripper thresholds, dwell, contact-anchored z) → export the phone dataset → V1 (naive) / V2 (ambient, t_min sweep chosen from replay errors) on Colab.
-  5. Paused: the small-policy ambient validation on synthetic noise (`scripts/run_ambient_synthetic.sh`; data in `data/synthetic_v2`, `data/synthetic_clean_v2`); per the user, no large runs locally, so run it on Colab or keep it small.
-- **Local disk:** 35 GiB free. `data/lerobot/sim_seen_v2c_100/vision_cache` (15 GB) isn't needed locally anymore (Colab builds its own); the user hasn't answered whether to delete it.
+## Probe of `V0_2cam_unfrozen` (2026-10-09, colab CLI)
+- **The final checkpoint (`step_015000`) is missing on Drive**, although Drive's `loss.csv` reaches 15000: Drive uploads big files in the background, and the runtime was deleted right after the final save (also lost: the cache's `COMPLETE` marker and the deletion of `step_012500/train_state.pt`). Latest checkpoint = **12,500**. Fix: `dcad.py down` / `wait --stop` call `drive.flush_and_unmount()` before stopping the VM; the notebook's last cell does the same.
+- **Probe segfault on Colab:** MuJoCo's EGL context creation crashed (`Segmentation fault` in `mujoco/egl/__init__.py`) whenever the policy had been loaded first. Cause: Colab ships TensorFlow, `transformers` imports it, and its libraries clash with EGL. `USE_TF=0` fixes it (now set in `vla/common.py`). This is very likely why the background probe watcher "died silently" during training, and it would have broken the eval too.
+- **Results** (n = 24 per checkpoint: 8 layouts × 3 instructions; chance 0.33):
+
+  | step | grounding acc. | to named cube | to nearest cube | single samples < 2 cm |
+  |---|---|---|---|---|
+  | 2,500 | 0.33 | 12.7 cm | 6.8 cm | 4% |
+  | 5,000 | 0.50 | 10.3 cm | 6.2 cm | 11% |
+  | 7,500 | 0.38 | 10.9 cm | 4.6 cm | 17% |
+  | 10,000 | 0.54 | 8.3 cm | 4.3 cm | 15% |
+  | 12,500 | **0.58** | **7.4 cm** | **3.0 cm** | 19% |
+
+  Unfreezing the language layers works: grounding rises above chance (frozen-VLM pilot: chance) and localization improves (pilot: 6.8 cm to the nearest cube), both still improving at 12.5k → continue training (`V0_2cam_unfrozen_30k`, initialized from step 12,500). Still far from the < 2 cm target. n = 24 is small (0.58 = 14/24).
+
+## Colab pipeline (`colab/dcad.py`, 2026-10-09)
+Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (nohup), all state on Drive, so the Mac can sleep.
+- **Runs are named** in `colab/runs.json` (data, train args on top of the defaults, `eval_k`, optional `init_from` = continue another run's latest checkpoint). One entry per experiment; don't edit an entry that has run.
+- **Stages** (each idempotent, re-run = resume): `data` (Drive `dcad/datasets/<name>.tar` → VM local disk) → `cache` (Drive `dcad/vision_cache/<name>_bf16` with `COMPLETE`, else built on the GPU and saved) → `train` (`--resume` into `dcad/checkpoints/vla/<run>`) → `probe` (all checkpoints → `probe.txt`) → `eval` (latest, `--k eval_k` → `eval_step*_k*/summary.json`). Per run: `job_status.json` (stage, timings, error, commit) and `job.log`; per job: `dcad/jobs/<id>.json`. Several runs in one job run back to back (e.g. a t_min sweep overnight).
+- **Commands:** `up` (session + code at the local HEAD, which must be pushed; pip install once per VM), `push-data <dir>` (tar without the cache, 64 MB parts; 434 MB in 45 s), `run <runs...> [--stages]`, `status`, `wait --stop` (poll, fetch, flush Drive, stop), `fetch <runs>` (→ `outputs/colab/<run>/`), `down`.
+- **Manual per new VM:** `colab drivemount -s dcad` (interactive). First `pip install -r requirements.txt` on a fresh VM takes ≈ 14 min.
+- **CLI pitfalls handled:** `colab exec` exits 0 when the code raises (traceback on stderr) → the driver treats a traceback as failure; upload fails for large files and for missing parent dirs; detached processes linger as zombies (liveness reads `/proc/<pid>/stat`); `colab stop` only knows sessions the CLI created (others: `client.unassign(endpoint)`); idle runtimes from browser tabs keep billing until deleted.
+- `colab/train_smolvla.ipynb` is now a thin browser wrapper around the same `job.py`.
+- `vla/build_cache.py`: one pass over the video for all cameras (was one decode pass per camera) with progress lines; `tests/test_feature_cache.py` passes.
+
+## Current status / resume here (2026-10-09 ~10:00)
+- Colab CLI logged in (`~/.local/bin/colab`). OAuth gotcha: if the consent screen grants fewer scopes than requested, `oauthlib` raises "Scope has changed" and nothing is saved; tick every box (or `OAUTHLIB_RELAX_TOKEN_SCOPE=1`). `~/.config/colab-cli/colab.log` has token material in plain text (debug log): delete it.
+- Repo is **public** now (the VM clones without a token). The sim dataset is on Drive as `dcad/datasets/sim_seen_v2c_100.tar`.
+- **Next:** smoke run of the pipeline → `V0_2cam_unfrozen_30k` → eval. Phone data: record the 48 clips (RECORDING.md) → `click_layout.py` → `process_phone.py` → `vla/export_lerobot.py --name phone_v2 ...` → `python colab/dcad.py push-data data/lerobot/phone_v2` → `python colab/dcad.py run V1_phone_naive V2_phone_ambient_t03` (add more t_min entries to `runs.json` for the sweep).
+- Paused: the small-policy ambient validation on synthetic noise (`scripts/run_ambient_synthetic.sh`); no large runs locally.
+- **Local disk:** `data/lerobot/sim_seen_v2c_100/vision_cache` (15 GB) isn't needed locally; the user hasn't answered whether to delete it.

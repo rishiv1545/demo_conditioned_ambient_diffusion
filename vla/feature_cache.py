@@ -13,6 +13,7 @@ raw images (an unpatched policy); tests/test_feature_cache.py checks that the tw
 """
 import json
 import os
+import time
 import types
 
 import numpy as np
@@ -37,21 +38,30 @@ def build_cache(root, policy, device, batch=32, workers=4):
     vlm = policy.model.vlm_with_expert
     out = {}
     loader = torch.utils.data.DataLoader(ds, batch_size=batch, shuffle=False, num_workers=workers)
-    for key in cfg.image_features:
-        d, f_npy, f_json = cache_paths(root, key)
-        os.makedirs(d, exist_ok=True)
-        mm = None
-        for b in loader:
+    keys = list(cfg.image_features)
+    mms = {}
+    t0, n_done, next_report = time.time(), 0, 0.1
+    for b in loader:   # one pass for all cameras: video decoding, not the GPU, dominates
+        for key in keys:
             img = b[key].to(device)
             if cfg.resize_imgs_with_padding is not None:
                 img = resize_with_pad(img, *cfg.resize_imgs_with_padding, pad_value=0)
             feat = vlm.embed_image(img * 2.0 - 1.0).float().cpu().numpy().astype(np.float16)
-            if mm is None:
-                mm = np.lib.format.open_memmap(f_npy + ".tmp", mode="w+", dtype=np.float16,
-                                               shape=(len(ds), *feat.shape[1:]))
-            mm[b["index"].numpy()] = feat
-        mm.flush()
-        del mm
+            if key not in mms:
+                d, f_npy, _ = cache_paths(root, key)
+                os.makedirs(d, exist_ok=True)
+                mms[key] = np.lib.format.open_memmap(f_npy + ".tmp", mode="w+", dtype=np.float16,
+                                                     shape=(len(ds), *feat.shape[1:]))
+            mms[key][b["index"].numpy()] = feat
+        n_done += len(b["index"])
+        if n_done / len(ds) >= next_report:
+            el = time.time() - t0
+            print(f"cache {n_done}/{len(ds)} frames, {el:.0f}s, ~{el * (len(ds) - n_done) / n_done:.0f}s left", flush=True)
+            next_report += 0.1
+    for key in keys:
+        _, f_npy, f_json = cache_paths(root, key)
+        mms[key].flush()
+        del mms[key]
         os.replace(f_npy + ".tmp", f_npy)
         with open(f_json, "w") as f:
             json.dump({"base": "lerobot/smolvla_base", "resize": cfg.resize_imgs_with_padding, "frames": len(ds),
