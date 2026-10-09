@@ -56,9 +56,11 @@ def main():
         return {st: cks[st]}
 
     done = set()
-    if a.log and os.path.exists(a.log):       # resuming after a disconnect: skip steps already probed
+    if a.watch and a.log and os.path.exists(a.log):   # watcher restarted after a disconnect: skip probed steps
         import re
         done = {int(m.group(1)) for m in re.finditer(r"^step\s+(\d+):", open(a.log).read(), re.M)}
+        print(f"already probed (from {a.log}): {sorted(done)}", flush=True)
+    print(f"checkpoints in {a.run}: {[s for s, _ in list_checkpoints(a.run)]}", flush=True)
     while True:
         new = todo(done)
         for st in sorted(new):
