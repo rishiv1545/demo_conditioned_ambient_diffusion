@@ -261,6 +261,19 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 - Color detection (session 2's HSV ranges): 17/48 clips fully detected; the misses (mostly the red and green patches, sometimes the lid) need `scripts/click_layout.py`. No hand-tracking failures.
 - First pass on the 17 detected clips (before the relabel): replay success 4/17 (blue 1/10). Failures are grasp misses: EE–object offset at gripper close 1–7.6 cm, **with a consistent +x bias of ≈ 1.5–3.5 cm** (worth checking: hand keypoint vs. pinch point, or parallax with the portrait orientation). "human_completed = 0" in 4 correct clips is a detection artifact (the lid/keycap covers the white patch at the end).
 
+### Session 3 processing after clicking (2026-10-09)
+- All 48 clips clicked. Hand tracking cached per clip and run on 4 processes: full pass 75 → 12 min, reruns 5–7 min.
+- **Grasp bias, clicked layouts** (`scripts/pinch_bias.py`): pinch point − object at the grasp = +0.17 / +0.52 cm (std 0.8 / 1.0, s.e. 0.12 / 0.14, n = 47). The earlier "+2 cm" came from color-detected object positions, not the hand. Corrected with `pinch_offset_cm` [−0.17, −0.52] in session.json (residual 0.0).
+- **Why replays failed** (`scripts/replay_diagnose.py`): the arm reached its targets (lag < 0.1 cm) and the targets were on the object, but **the cube was pushed before the grasp** (median 1.1 cm in −x, up to 5.3 cm): the human opens the hand ≈ 3.4 cm from the object at ≈ 4 cm height and comes in low from the side; the Panda following that path hits the cube with its (still opening) fingers. 19/47 never lifted.
+- **Fix: approach-from-above retargeting rule** (`RetargetConfig.approach_clear` = 5 cm, radius 6 cm, `human/retarget.py:approach_from_above`): within 6 cm of the grasp point the gripper is open, moves over the point 5 cm above it and descends vertically; after the release it rises 5 cm before moving on. Grasp/release points and step count unchanged. **Replay success 44% → 75%** (blue 9/24 → 21/24); remaining failures: 6 no lift, 3 just outside the zone (5.2–5.6 cm), 2–3 dropped.
+- `green_to_purple_04`: no grasp detected because the release opening (thin keycap) stayed below the open threshold set from the pickup spread → retry with half the margin. **Final: 48/48 extracted, 37/48 replays succeed (77%)**; `phone_v2` (48 episodes, 7438 frames) on Drive.
+- Side-by-side videos for every clip: `outputs/m2/3/<clip>_side_by_side.mp4` (phone with hand overlay | sim from the phone viewpoint | sim front; caption with task and replay result). The phone-viewpoint camera is estimated from the session's own clips (same pose as session 1: 43.2 cm, 8.6° tilt, as the user set it up).
+
+### First results (2026-10-09, in progress)
+- VLA `V0_2cam_unfrozen_30k`, eval step 30k (k = 20): **seen 39.2% [30.9, 48.1], blue 0/60**.
+- VLA `C_blue4` probe at 15k: blue accuracy 0.12 (no better than V0 at the probe level); eval pending.
+- Small policy (L2 = phone-like noise): C seen 87.3 / blue 40.0; Ceil 95.3 / 94.7; L2_CN 74.3 / 40.0; L2_CNa25 76.3 / 38.0 (the remaining runs are going).
+
 ## Limitations (2026-10-09)
 - **The phone data comes from a controlled, marker-calibrated setup**, so it understates the gap to in-the-wild human video. Fixed top-down phone at a measured height (43 cm, 0.5× lens), ArUco markers giving metric table coordinates in every frame, known object sizes and heights, a flat uncluttered table, a single right hand, and a recording protocol (exaggerated open/close, pauses) designed for the pipeline. In-the-wild video has moving/unknown cameras, no metric scale, occlusion, clutter and different grasps. Measured noise here: ≈ 2–4 cm grasp offsets and gripper timing errors; session 2 replays 2/3.
 - Phone demos are retargeted and replayed in sim and re-rendered for the VLA, so the experiment tests demonstration (action) noise, not the visual domain gap.
