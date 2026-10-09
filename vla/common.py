@@ -5,6 +5,9 @@ import os
 import re
 
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+# Colab ships TensorFlow; transformers imports it if present, and then creating MuJoCo's EGL context segfaults
+# (probe/eval rollouts after the policy is loaded). Torch-only here.
+os.environ.setdefault("USE_TF", "0")
 
 import numpy as np
 import torch
