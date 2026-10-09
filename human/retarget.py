@@ -15,6 +15,9 @@ class RetargetConfig:
     contact_z: float = None        # if set: pinch height (human frame) at grasp/release, used to re-anchor z
     z_min: float = 0.012           # never command the fingertips into the table
     dwell_s: float = 0.0           # hold the EE still this long before and after each gripper switch
+    approach_clear: float = 0.0    # > 0: approach the grasp point from this high above it (gripper open), descend
+    #                                vertically, and rise as high after the release before moving on (0 = off)
+    approach_radius: float = 0.06  # the approach/retreat rule applies within this xy distance of the contact
     hz: float = 10.0
     ee_bounds: tuple = ((-0.05, 0.55), (-0.08, 0.42), (0.008, 0.40))
 
@@ -49,12 +52,67 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig()):
     idx = np.clip(np.searchsorted(t_src, t), 0, len(t_src) - 1)
     g = ex["grip"][idx].astype(np.float32)
     ee = np.column_stack([x, y, np.maximum(z, cfg.z_min)])
+    if cfg.approach_clear > 0:
+        ee, g = approach_from_above(ee, g, cfg.approach_clear, cfg.approach_radius)
     lo = np.array([b[0] for b in cfg.ee_bounds])
     hi = np.array([b[1] for b in cfg.ee_bounds])
     ee = np.clip(ee, lo, hi)
     if cfg.dwell_s > 0:
         ee, g, t = add_dwell(ee, g, int(round(cfg.dwell_s * cfg.hz)), t)
     return ee, g, t   # t: source (phone) time of each step; repeated during dwells
+
+
+def approach_from_above(ee, g, clear, radius):
+    """Embodiment rule for the parallel gripper. A human hand comes in low from the side and opens right at the
+    object; fingers slide around it, but the Panda's fingers following that path hit and push the cube (phone
+    session 3: the cube moved a median 1.1 cm before the grasp, up to 5 cm; 19/47 replays never lifted it).
+    Within `radius` of the grasp point the gripper is open, moves over the point `clear` above it and descends
+    vertically; after the release it rises vertically by `clear` before following the human path again. The grasp
+    and release points (the human's actual choice, incl. its noise) and the number of steps are unchanged.
+    Returns modified copies; no grasp (open -> closed after an open phase) found: unchanged."""
+    ee, g = ee.copy(), g.copy()
+    closed = g > 0.5
+    opened = np.flatnonzero(~closed)
+    if not len(opened):
+        return ee, g
+    tc = next((k for k in range(opened[0] + 1, len(g)) if closed[k] and not closed[k - 1]), None)
+    if tc is None:
+        return ee, g
+    p = ee[tc].copy()
+    far = np.flatnonzero(np.linalg.norm(ee[:tc, :2] - p[:2], axis=1) > radius)
+    ta = far[-1] if len(far) else 0
+    n = tc - ta
+    if n >= 2:
+        zc = max(p[2] + clear, ee[ta, 2])
+        n1 = max(1, n // 2)                       # move over the grasp point at the clearance height ...
+        u = np.arange(1, n1 + 1) / n1
+        ee[ta + 1:ta + n1 + 1, :2] = ee[ta, :2] + u[:, None] * (p[:2] - ee[ta, :2])
+        ee[ta + 1:ta + n1 + 1, 2] = ee[ta, 2] + np.minimum(1.0, 3 * u) * (zc - ee[ta, 2])
+        n2 = n - n1                               # ... then straight down
+        v = np.arange(1, n2 + 1) / n2
+        ee[ta + n1 + 1:tc + 1, :2] = p[:2]
+        ee[ta + n1 + 1:tc + 1, 2] = zc + v[:n2] * (p[2] - zc)
+        ee[tc] = p
+        g[ta:tc] = 0.0                            # fully open before the descent
+    to = next((k for k in range(tc + 1, len(g)) if not closed[k] and closed[k - 1]), None)
+    if to is None:
+        return ee, g
+    q = ee[to].copy()
+    away = np.flatnonzero(np.linalg.norm(ee[to:, :2] - q[:2], axis=1) > radius)
+    tr = to + away[0] if len(away) else len(ee) - 1
+    m = tr - to
+    if m >= 2:
+        zr = q[2] + clear
+        m1 = max(1, m // 2)                       # straight up ...
+        u = np.arange(1, m1 + 1) / m1
+        ee[to + 1:to + m1 + 1, :2] = q[:2]
+        ee[to + 1:to + m1 + 1, 2] = q[2] + u * (zr - q[2])
+        m2 = m - m1                               # ... then over to where the human path leaves the radius
+        v = np.arange(1, m2 + 1) / m2
+        ee[to + m1 + 1:tr + 1, :2] = q[:2] + v[:, None] * (ee[tr, :2] - q[:2])
+        ee[to + m1 + 1:tr + 1, 2] = np.maximum(zr + v * (ee[tr, 2] - zr), ee[to + m1 + 1:tr + 1, 2])
+        g[to:tr] = 0.0                            # stay open while clearing the cube
+    return ee, g
 
 
 def add_dwell(ee, g, n, t=None):

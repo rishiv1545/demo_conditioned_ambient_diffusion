@@ -215,3 +215,38 @@ def test_dwell_inserted_at_switches():
     assert len(E) == 10 + 2 * 2 * 2
     i = np.flatnonzero(np.diff(G) != 0)[0] + 1        # first switch in the output
     assert np.allclose(E[i - 2:i + 2], ee[3]) and G[i - 1] == 0 and G[i] == 1
+
+
+def test_approach_from_above_rule():
+    from human.retarget import approach_from_above
+    # rest closed -> open late, low approach from +x -> close at the cube -> carry -> release -> leave low
+    T = 60
+    ee = np.zeros((T, 3))
+    ee[:, 2] = 0.02
+    ee[:20, 0] = np.linspace(0.30, 0.10, 20)          # approach along -x at fingertip height
+    ee[20:30, 0] = 0.10
+    ee[30:40, :2] = np.linspace([0.10, 0.0], [0.10, 0.20], 10)
+    ee[30:40, 2] = 0.06
+    ee[40:, :2] = [0.10, 0.20]
+    ee[45:, 0] = np.linspace(0.10, 0.30, 15)           # leave low after the release
+    g = np.ones(T)
+    g[17:22] = 0                                       # opens only 3 steps before arriving, closes at t=22
+    g[42:50] = 0                                       # release at t=42
+    out, go = approach_from_above(ee, g, clear=0.05, radius=0.06)
+    tc, to = 22, 42
+    assert np.allclose(out[tc], ee[tc]) and np.allclose(out[to], ee[to])    # contact points unchanged
+    assert len(out) == T
+    near = np.flatnonzero(np.linalg.norm(ee[:tc, :2] - ee[tc, :2], axis=1) <= 0.06)
+    ta = near[0] - 1
+    assert (go[ta:tc] == 0).all()                      # open for the whole approach
+    # never low while still away from the grasp point: above contact + 2 cm whenever > 1 cm away in xy
+    for k in range(ta + 1, tc):
+        if np.linalg.norm(out[k, :2] - ee[tc, :2]) > 0.01:
+            assert out[k, 2] >= ee[tc, 2] + 0.02, k
+    # after the release: rises over the release point before moving away
+    k_up = to + 1
+    assert np.allclose(out[k_up, :2], ee[to, :2]) and out[k_up, 2] > ee[to, 2]
+    assert out[to + 1:to + 8, 2].max() >= ee[to, 2] + 0.05 - 1e-9
+    # no grasp -> unchanged
+    o2, g2 = approach_from_above(ee, np.ones(T), 0.05, 0.06)
+    assert np.allclose(o2, ee)

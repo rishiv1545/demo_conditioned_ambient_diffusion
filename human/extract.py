@@ -243,10 +243,12 @@ def detect_objects(frame, H, specs, camera_h=None, cam_xy=None, ppm=1000, exclud
 
 # ---------------------------------------------------------------------------- full extraction
 def extract_clip(frames, fps, Hs, session, s0, grip_lo=0.65, grip_hi=0.9, min_dur_s=0.2, max_gap_s=0.5,
-                 grip_mode="relative", rest_closed=True):
-    """Returns dict with t [T], xy [T,2], z [T], grip [T] (bool closed), aperture [T], valid [T], lm_px, objects."""
+                 grip_mode="relative", rest_closed=True, lm_px=None):
+    """Returns dict with t [T], xy [T,2], z [T], grip [T] (bool closed), aperture [T], valid [T], lm_px, objects.
+    lm_px: precomputed track_hand output (the slow part), e.g. from a cache."""
     Hc = session["camera_height"]
-    lm_px = track_hand(frames, fps, session.get("hand", "right"))
+    if lm_px is None:
+        lm_px = track_hand(frames, fps, session.get("hand", "right"))
     lm_tab = landmarks_to_table(lm_px, Hs)
     T = len(frames)
     cam = np.stack([camera_ground_xy(Hs[t], frames[0].shape) for t in range(T)])
