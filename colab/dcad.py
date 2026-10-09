@@ -106,6 +106,8 @@ def cmd_push_data(a):
     src = os.path.abspath(a.path)
     name = a.name or os.path.basename(src.rstrip("/"))
     assert os.path.exists(os.path.join(src, "episodes.json")), f"{src}/episodes.json missing (not an exported dataset?)"
+    if cmd_up(a):   # a stopped VM is recreated; Drive must be mounted to store the tar
+        return 2
     with tempfile.TemporaryDirectory() as td:
         tar = os.path.join(td, f"{name}.tar")
         subprocess.run(["tar", "-cf", tar, "--exclude", "vision_cache", "-C", os.path.dirname(src),
@@ -257,7 +259,8 @@ def main():
     p.add_argument("-s", "--session", default="dcad")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("up"); s.add_argument("--gpu", default="A100"); s.set_defaults(f=cmd_up)
-    s = sub.add_parser("push-data"); s.add_argument("path"); s.add_argument("--name"); s.set_defaults(f=cmd_push_data)
+    s = sub.add_parser("push-data"); s.add_argument("path"); s.add_argument("--name"); s.add_argument("--gpu", default="A100")
+    s.set_defaults(f=cmd_push_data)
     s = sub.add_parser("run"); s.add_argument("runs", nargs="+"); s.add_argument("--gpu", default="A100")
     s.add_argument("--stages", default="data,cache,train,probe,eval"); s.set_defaults(f=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job"); s.add_argument("--lines", type=int, default=12)
