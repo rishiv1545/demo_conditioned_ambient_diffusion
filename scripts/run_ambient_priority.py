@@ -107,22 +107,24 @@ def main():
             cell("K4_C_bal", None, clean=4, seed=k, extra=bal), cell("K4_P_bal", P, clean=4, seed=k, src="human", extra=bal),
             cell("K4_Pa75_bal", P, clean=4, t=75, seed=k, src="human", extra=bal))], a.lanes)
         return
-    if a.only == "locality":   # 0 clean blue, phone blue only, balanced; locality: red/green clean only at t < t_max
-        bal = ["--balance", "tasks"]
+    if a.only == "locality":   # mirrors the VLA: red/green base, then post-train with phone blue only (0 clean blue)
+        phase("locality base: red/green clean only", [cell("RG", None)], a.lanes)
+        post = ["--init_from", "checkpoints/sweep_RG/ckpt.pt", "--steps", "5000", "--balance", "tasks"]
         grid = [(50, 25), (50, 50), (75, 25), (75, 50), (75, 75)]   # (t_min, t_max); t_max < t_min leaves a gap
-        phase("locality, seed 0: naive / ambient t50, t75 / ambient + clean t_max", [
-            cell("K0_P_bal", P, tasks="heldout", src="human", extra=bal)]
-            + [cell(f"K0_Pa{t}_bal", P, tasks="heldout", t=t, src="human", extra=bal) for t in (50, 75)]
-            + [cell(f"K0_Pa{t}_m{m}_bal", P, tasks="heldout", t=t, src="human", extra=bal + ["--clean_t_max", str(m)])
-               for t, m in grid], a.lanes)
-        ta = best_t("K0_Pa", ["50_bal", "75_bal"])
-        tl = best_t("K0_Pa", [f"{t}_m{m}_bal" for t, m in grid])
+        cells = {"RG_P": (0, 0)} | {f"RG_Pa{t}": (t, 0) for t in (50, 75)} | {f"RG_Pa{t}_m{m}": (t, m) for t, m in grid}
+
+        def job(name, seed=0):
+            t, m = cells[name]
+            return cell(name, P, tasks="heldout", t=t, seed=seed, src="human",
+                        extra=post + (["--clean_t_max", str(m)] if m else []))
+        phase("locality post-training, seed 0", [job(n) for n in cells], a.lanes)
+        ta = "RG_Pa" + str(best_t("RG_Pa", [50, 75]))
+        tl = "RG_Pa" + str(best_t("RG_Pa", [f"{t}_m{m}" for t, m in grid]))
         print(f"best: ambient {ta}, locality {tl}", flush=True)
-        ext = lambda k: bal + (["--clean_t_max", k.split("_m")[1].split("_")[0]] if "_m" in k else [])
-        phase("locality, seeds 1-2", [j for k in (1, 2) for j in (
-            cell("K0_P_bal", P, tasks="heldout", seed=k, src="human", extra=bal),
-            cell(f"K0_Pa{ta}", P, tasks="heldout", t=int(ta[:2]), seed=k, src="human", extra=ext(ta)),
-            cell(f"K0_Pa{tl}", P, tasks="heldout", t=int(tl[:2]), seed=k, src="human", extra=ext(tl)))], a.lanes)
+        phase("locality post-training, seeds 1-2: naive, best ambient, best locality",
+              [job(n, k) for k in (1, 2) for n in ("RG_P", ta, tl)], a.lanes)
+        phase("locality post-training, seeds 1-2: the other cells",
+              [job(n, k) for k in (1, 2) for n in cells if n not in ("RG_P", ta, tl)], a.lanes)
         return
     os.makedirs(OUT, exist_ok=True)
     T = [25, 50, 75, 90]

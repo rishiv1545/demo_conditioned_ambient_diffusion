@@ -89,6 +89,8 @@ def main():
     p.add_argument("--clean_t_max", type=int, default=0,
                    help="locality: clean samples (sigma_n == 0) draw t from [0, t_max), so they teach only the "
                         "low-noise, local motion; 0 = off")
+    p.add_argument("--init_from", default=None,
+                   help="post-train: start from this ckpt.pt (its EMA weights and normalization; fresh optimizer)")
     p.add_argument("--sim_per_task", type=int, default=20)
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
                    help="tasks: every task equally often per batch (frames uniform within a task); none: uniform")
@@ -120,7 +122,13 @@ def main():
                                       "include_failed": bool(a.include_failed)})
     if not eps:
         sys.exit("no episodes matched the filters")
-    ds = ChunkDataset(eps, DataConfig(horizon=cfg.horizon, n_obs=cfg.n_obs))
+    init = torch.load(a.init_from, map_location="cpu", weights_only=False) if a.init_from else None
+    norms = {}
+    if init is not None:   # keep the base policy's normalization so its weights stay valid
+        from policy.data import Normalizer
+        norms = {"obs_norm": Normalizer.from_state_dict(init["norm"]["obs"]),
+                 "act_norm": Normalizer.from_state_dict(init["norm"]["act"])}
+    ds = ChunkDataset(eps, DataConfig(horizon=cfg.horizon, n_obs=cfg.n_obs), **norms)
     summary = {}
     for e in eps:
         k = f"{e['source']}:{task_name(e['task'])}"
@@ -129,6 +137,10 @@ def main():
 
     arr = {k: torch.as_tensor(v, device=dev) for k, v in ds.arrays().items()}
     pol = build_policy(cfg).to(dev)
+    if init is not None:
+        assert all(init["cfg"][k] == getattr(cfg, k) for k in ("horizon", "n_obs", "bilinear", "T")), "arch mismatch"
+        pol.load_state_dict(init["ema"])
+        print(f"initialized from {a.init_from}")
     ema = copy.deepcopy(pol).eval()
     for q in ema.parameters():
         q.requires_grad_(False)
