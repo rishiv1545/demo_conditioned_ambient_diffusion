@@ -187,6 +187,40 @@ def select_checkpoint(res, init_step, es):
     return min(cand, key=lambda s: (cand[s][1], s)), False
 
 
+def stop_step(res, init_step, es):
+    """The probed step at which the watcher would have written STOP (None: never plateaued)."""
+    for st in sorted(s for s in res if s >= init_step):
+        if plateaued({k: v for k, v in res.items() if k <= st}, init_step, es):
+            return st
+    return None
+
+
+def finish_selection(run_dir, res, init_step, es, last, log, extra=None):
+    step, passed = select_checkpoint(res, init_step, es)
+    keep = {step, last}
+    for st, d in [(int(os.path.basename(d)[5:]), d) for d in glob.glob(f"{run_dir}/step_*")]:
+        if st not in keep:
+            shutil.rmtree(d)
+    write_json(f"{run_dir}/selected.json", {"step": step, "passed_distance_cut": passed, "last": last,
+                                            "probe": {str(k): v for k, v in sorted(res.items())}, "rule": es,
+                                            **(extra or {})})
+    log.write(f"selected step {step} (distance cut passed: {passed}); kept {sorted(keep)}\n")
+    return step
+
+
+def select_after_training(run_dir, init_step, es, log):
+    """Early-stopping selection after the fact: probe every checkpoint (blue only), cut the series where the watcher
+    would have stopped training, and select within it."""
+    plog = f"{run_dir}/probe_es.txt"
+    sh(f"python vla/probe_grounding.py --run {run_dir} --step all --cubes {es['cubes']} --layouts 32 --device cuda "
+       f"--log {plog}", log)
+    res = probe_results(plog)
+    st = stop_step(res, init_step, es)
+    cut = {k: v for k, v in res.items() if st is None or k <= st}
+    return finish_selection(run_dir, cut, init_step, es, latest_step(run_dir), log,
+                            {"posthoc": True, "would_stop_at": st, "probe_all": {str(k): v for k, v in sorted(res.items())}})
+
+
 def train_early_stop(run_dir, train_cmd, init_step, es, log):
     """Train while a watcher probes every saved checkpoint (blue only); write STOP once both probe metrics have
     plateaued (training saves and exits), pick the checkpoint, and delete the other checkpoints (588 MB each)."""
@@ -215,16 +249,7 @@ def train_early_stop(run_dir, train_cmd, init_step, es, log):
             break      # already plateaued: the unprobed tail can't win on the plateau rule's terms
         time.sleep(20)
     pr.kill()
-    res = probe_results(plog)
-    step, passed = select_checkpoint(res, init_step, es)
-    keep = {step, last}
-    for st, d in [(int(os.path.basename(d)[5:]), d) for d in glob.glob(f"{run_dir}/step_*")]:
-        if st not in keep:
-            shutil.rmtree(d)
-    write_json(f"{run_dir}/selected.json", {"step": step, "passed_distance_cut": passed, "last": last,
-                                            "probe": {str(k): v for k, v in sorted(res.items())}, "rule": es})
-    log.write(f"selected step {step} (distance cut passed: {passed}); kept {sorted(keep)}\n")
-    return step
+    return finish_selection(run_dir, probe_results(plog), init_step, es, last, log)
 
 
 def init_from(src_name, run_dir, log):
@@ -279,7 +304,7 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         train_args += f" --stats_from {OUT}/{cfg['init_from']}"
                     cmd = (f"python vla/train_smolvla.py --run_name {name} --data "
                            f"{' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} {train_args}")
-                    if cfg.get("early_stop"):
+                    if "early_stop" in cfg:   # ({} = the defaults)
                         es = {**EARLY_STOP, **cfg["early_stop"]}
                         init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
                         if not os.path.exists(f"{run_dir}/selected.json"):
@@ -289,6 +314,11 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                 elif st == "probe":
                     probe_args = cfg.get("probe", defaults.get("probe", ""))
                     pstep = cfg.get("probe_step", "all")
+                    if "early_stop" in cfg and not os.path.exists(f"{run_dir}/selected.json"):
+                        # trained without the watcher (B2 runs before the fix): the same rule on all checkpoints
+                        es = {**EARLY_STOP, **cfg["early_stop"]}
+                        init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
+                        select_after_training(run_dir, init_step, es, log)
                     if pstep == "selected":   # full probe (all cubes) of the early-stopping checkpoint
                         pstep = json.load(open(f"{run_dir}/selected.json"))["step"]
                     sh(f"python vla/probe_grounding.py --run {run_dir} --step {pstep} --device cuda {probe_args} "
