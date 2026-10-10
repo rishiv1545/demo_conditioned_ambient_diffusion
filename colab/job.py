@@ -26,7 +26,8 @@ import traceback
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVE = "/content/drive/MyDrive/dcad"
 OUT = f"{DRIVE}/checkpoints/vla"
-STAGES = ["data", "cache", "train", "probe", "check", "eval"]   # check: raw-vs-cached inference (vla/check_cache.py)
+STAGES = ["data", "cache", "train", "probe", "check", "eval", "grasp"]   # check: raw-vs-cached inference (vla/check_cache.py)
+# grasp: grasp-offset bias/scatter and offline-vs-closed-loop error (vla/grasp_diag.py)
 
 
 def load_runs():
@@ -181,6 +182,10 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     step = (eval_steps or [latest_step(run_dir)])[-1]
                     sh(f"python vla/check_cache.py --run {run_dir} --step {step} --n 200 --device cuda "
                        f"--out {run_dir}/check_cache_step{step:06d}.json", log)
+                elif st == "grasp":
+                    step = (eval_steps or [latest_step(run_dir)])[-1]
+                    sh(f"python vla/grasp_diag.py --run {run_dir} --step {step} --device cuda "
+                       f"--out {run_dir}/grasp_diag_step{step:06d}.json", log)
                 elif st == "eval" and eval_k > 0:
                     # variants: [[tag, args], ...] from runs.json (e.g. normal and zero-noise sampling), else the CLI's
                     variants = cfg.get("eval_variants") or [[eval_tag, eval_args]]
@@ -212,7 +217,7 @@ def main():
     p.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check (default: per run)")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
-    if any(st in stages for st in ("cache", "train", "probe", "check", "eval")) and "data" not in stages:
+    if any(st in stages for st in ("cache", "train", "probe", "check", "eval", "grasp")) and "data" not in stages:
         stages = ["data"] + stages   # every later stage needs the datasets (episodes.json) on this VM
     assert set(stages) <= set(STAGES), f"stages must be in {STAGES}"
     assert os.path.isdir("/content/drive/MyDrive"), "Drive is not mounted (run `colab drivemount -s <session>`)"

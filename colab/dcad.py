@@ -227,7 +227,7 @@ d = "{OUT}/{run}"
 fs = [f for f in ["run.json", "loss.csv", "probe.txt", "job.log"] if os.path.exists(f"{{d}}/{{f}}")]
 fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/job_status*.json")]
 fs += [os.path.relpath(p, d) for p in glob.glob(f"{{d}}/eval_*/summary.json") + glob.glob(f"{{d}}/eval_*/episodes.csv")]
-fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/check_cache_*.json")]
+fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/check_cache_*.json") + glob.glob(f"{{d}}/grasp_diag_*.json")]
 print("\\n".join(fs))
 """, a.session).split()
         for f in files:
