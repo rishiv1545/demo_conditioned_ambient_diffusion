@@ -143,6 +143,10 @@ print("on Drive:", "{DRIVE}/datasets/{name}.tar", os.path.getsize("{DRIVE}/datas
 """, a.session, timeout=600))
 
 
+def last_job_path(session):
+    return os.path.join(REPO, "outputs", "colab", f".last_job_{session}")
+
+
 def cmd_run(a):
     with open(os.path.join(REPO, "colab", "runs.json")) as f:
         known = json.load(f)["runs"]
@@ -167,6 +171,8 @@ p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages"
                      env={{**os.environ, **{env!r}}})
 print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
 """, a.session))
+    with open(last_job_path(a.session), "w") as f:   # wait/status follow this job, not an older one whose file is newer
+        f.write(job_id)
     print(f"follow with: python colab/dcad.py status   |   python colab/dcad.py wait --stop")
 
 
@@ -209,6 +215,8 @@ print("gpu:", subprocess.run("nvidia-smi --query-gpu=utilization.gpu,memory.used
 
 
 def status(a, n=12):
+    if not a.job and os.path.exists(last_job_path(a.session)):
+        a.job = open(last_job_path(a.session)).read().strip()
     return remote(STATUS_CODE.replace("{JOB!r}", repr(a.job)).replace("{N}", str(n)).replace("{SESSION}", a.session),
                   a.session)
 
