@@ -98,6 +98,15 @@ def main():
             cell("K4_Pok", P, clean=4, seed=k, src="human", extra=ok),
             cell("K4_Pok_a75", P, clean=4, t=75, seed=k, src="human", extra=ok))], a.lanes)
         return
+    if a.only == "balanced":   # fairness check: task-balanced sampling (as the VLA C/CN/CNamb_rec4 runs) vs uniform
+        bal = ["--balance", "tasks"]
+        phase("balanced sampling, seed 0: clean / naive / ambient t50, t75, t90",
+              [cell("K4_C_bal", None, clean=4, extra=bal), cell("K4_P_bal", P, clean=4, src="human", extra=bal)]
+              + [cell(f"K4_Pa{t}_bal", P, clean=4, t=t, src="human", extra=bal) for t in (75, 50, 90)], a.lanes)
+        phase("balanced sampling, seeds 1-2", [j for k in (1, 2) for j in (
+            cell("K4_C_bal", None, clean=4, seed=k, extra=bal), cell("K4_P_bal", P, clean=4, seed=k, src="human", extra=bal),
+            cell("K4_Pa75_bal", P, clean=4, t=75, seed=k, src="human", extra=bal))], a.lanes)
+        return
     os.makedirs(OUT, exist_ok=True)
     T = [25, 50, 75, 90]
     # 1) the missing comparison for the 0-clean ambient result

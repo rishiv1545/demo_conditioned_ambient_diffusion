@@ -87,6 +87,8 @@ def main():
     p.add_argument("--ambient_t_min", type=int, default=0,
                    help="ambient loss: samples with sigma_n != 0 (human/synthetic) draw t from [t_min, T); 0 = off")
     p.add_argument("--sim_per_task", type=int, default=20)
+    p.add_argument("--balance", default="none", choices=["none", "tasks"],
+                   help="tasks: every task equally often per batch (frames uniform within a task); none: uniform")
     p.add_argument("--clean_heldout_per_task", type=int, default=0,
                    help="clean sim demos per held-out task (scarce clean data; the first N, disjoint from the "
                         "synthetic noisy demos, which make_synthetic_noisy.py draws from index --skip on)")
@@ -139,8 +141,13 @@ def main():
     w = csv.writer(log)
     w.writerow(["step", "loss", "lr", "elapsed_s"])
     N, t0, run = len(ds), time.time(), 0.0
+    w_task = None
+    if a.balance == "tasks":
+        tk = np.array([ALL_TASKS.index(eps[i]["task"]) for i, _ in ds.index])
+        w_task = torch.as_tensor(1.0 / np.bincount(tk)[tk], dtype=torch.float, device=dev)
     for step in range(1, cfg.steps + 1):
-        idx = torch.randint(0, N, (cfg.batch,), device=dev)
+        idx = (torch.multinomial(w_task, cfg.batch, replacement=True) if w_task is not None
+               else torch.randint(0, N, (cfg.batch,), device=dev))
         batch = {k: v[idx] for k, v in arr.items()}
         cond = pol.encode(batch)
         t_min = None
