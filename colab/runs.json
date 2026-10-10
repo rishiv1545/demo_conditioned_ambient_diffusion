@@ -1,5 +1,5 @@
 {
-  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix.",
+  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix. Blue-only runs (B_*): no red/green data; eval_steps 'plateau' evaluates the earliest checkpoint after init_from whose blue probe accuracy is within 2/32 of the best (plateau.json).",
   "defaults": {
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
     "eval_k": 20,
@@ -189,6 +189,92 @@
       ],
       "_note": "as V0_30k_rec_decay3k with the sim recovery data replaced by phone miss-and-correct clips (loss masked before the correction, ambient t_min); --mix gives them the sim recovery data's share of samples (36767 / 98344 = 0.37)",
       "probe_step": "latest"
+    },
+    "B_C": {
+      "data": [],
+      "init_from": "V0_30k_rec_decay3k",
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 39000 --lr_schedule cosine_from_resume --lr_floor 2.5e-6 --save_every 1000 --balance tasks",
+      "clean_blue_per_task": 4,
+      "eval_k": 50,
+      "probe_step": "all",
+      "eval_steps": "plateau",
+      "eval_variants": [
+        [
+          "_blue_zn",
+          "--tasks heldout --noise_scale 0"
+        ],
+        [
+          "_seen_k10_zn",
+          "--tasks seen --k 10 --noise_scale 0"
+        ]
+      ]
+    },
+    "B_CN": {
+      "data": [
+        "phone_v2?cube=blue",
+        "phone_v3_blue"
+      ],
+      "init_from": "V0_30k_rec_decay3k",
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 39000 --lr_schedule cosine_from_resume --lr_floor 2.5e-6 --save_every 1000 --balance tasks",
+      "clean_blue_per_task": 4,
+      "eval_k": 50,
+      "probe_step": "all",
+      "eval_steps": "plateau",
+      "eval_variants": [
+        [
+          "_blue_zn",
+          "--tasks heldout --noise_scale 0"
+        ],
+        [
+          "_seen_k10_zn",
+          "--tasks seen --k 10 --noise_scale 0"
+        ]
+      ]
+    },
+    "B_CNamb": {
+      "data": [
+        "phone_v2?cube=blue",
+        "phone_v3_blue"
+      ],
+      "init_from": "V0_30k_rec_decay3k",
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 39000 --lr_schedule cosine_from_resume --lr_floor 2.5e-6 --save_every 1000 --balance tasks",
+      "ambient": true,
+      "clean_blue_per_task": 4,
+      "eval_k": 50,
+      "probe_step": "all",
+      "eval_steps": "plateau",
+      "eval_variants": [
+        [
+          "_blue_zn",
+          "--tasks heldout --noise_scale 0"
+        ],
+        [
+          "_seen_k10_zn",
+          "--tasks seen --k 10 --noise_scale 0"
+        ]
+      ]
+    },
+    "B_CNamb_base": {
+      "data": [
+        "phone_v2?cube=blue",
+        "phone_v3_blue"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 6000 --lr_schedule cosine --save_every 1000 --balance tasks",
+      "ambient": true,
+      "clean_blue_per_task": 4,
+      "eval_k": 50,
+      "probe_step": "all",
+      "eval_steps": "plateau",
+      "eval_variants": [
+        [
+          "_blue_zn",
+          "--tasks heldout --noise_scale 0"
+        ],
+        [
+          "_seen_k10_zn",
+          "--tasks seen --k 10 --noise_scale 0"
+        ]
+      ]
     }
   }
 }

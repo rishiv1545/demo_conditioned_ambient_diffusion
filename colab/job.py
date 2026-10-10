@@ -16,6 +16,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -105,7 +106,7 @@ PHONE = "phone_v2"
 def dataset_specs(cfg):
     """[(dataset name, train_smolvla --data spec)] for a run: its "data" list, plus the clean blue demos
     ("clean_blue_per_task": N) and the phone replays ("phone": "all" | "blue")."""
-    out = [(d, f"data/lerobot/{d}") for d in cfg["data"]]
+    out = [(d.split("?")[0], f"data/lerobot/{d}") for d in cfg["data"]]   # "name?cube=blue" selects episodes
     n = cfg.get("clean_blue_per_task", 0)
     if n:
         out.append((CLEAN_BLUE, f"data/lerobot/{CLEAN_BLUE}?per_task={n}"))
@@ -120,6 +121,30 @@ def latest_step(run_dir):
     steps = [int(os.path.basename(d)[5:]) for d in glob.glob(f"{run_dir}/step_*")
              if os.path.exists(f"{d}/trainable.pt")]
     return max(steps, default=0)
+
+
+def probe_blue(run_dir):
+    """{step: blue grounding accuracy} from the run's probe.txt (last entry per step)."""
+    out, step = {}, None
+    for line in open(f"{run_dir}/probe.txt"):
+        m = re.match(r"step\s+(\d+):", line)
+        if m:
+            step = int(m.group(1))
+        m = re.match(r"\s+blue\s+accuracy ([\d.]+)", line)
+        if m and step is not None:
+            out[step] = float(m.group(1))
+    return out
+
+
+def plateau_step(run_dir, after, tol=1 / 16):
+    """Earliest checkpoint after `after` (the init step) whose blue probe accuracy is within tol (2 of 32 layouts)
+    of the best one: where the blue probe plateaus."""
+    acc = {s: v for s, v in probe_blue(run_dir).items() if s > after}
+    assert acc, f"no probed checkpoints after step {after} in {run_dir}/probe.txt"
+    best = max(acc.values())
+    step = min(s for s, v in acc.items() if v >= best - tol)
+    write_json(f"{run_dir}/plateau.json", {"step": step, "blue_acc": acc, "after": after, "tol": tol})
+    return step
 
 
 def init_from(src_name, run_dir, log):
@@ -187,6 +212,10 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     sh(f"python vla/grasp_diag.py --run {run_dir} --step {step} --device cuda "
                        f"--out {run_dir}/grasp_diag_step{step:06d}.json", log)
                 elif st == "eval" and eval_k > 0:
+                    if cfg.get("eval_steps") == "plateau" and not eval_steps:   # the blue probe's plateau checkpoint
+                        init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
+                        eval_steps = [plateau_step(run_dir, init_step)]
+                        log.write(f"plateau step {eval_steps[0]}\n")
                     # variants: [[tag, args], ...] from runs.json (e.g. normal and zero-noise sampling), else the CLI's
                     variants = cfg.get("eval_variants") or [[eval_tag, eval_args]]
                     for step in eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
