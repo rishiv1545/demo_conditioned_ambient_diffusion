@@ -4,7 +4,7 @@
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
     "eval_k": 20,
     "probe": "--layouts 32",
-    "ambient_t_min": null
+    "ambient_t_min": 0.72
   },
   "runs": {
     "V0_2cam_unfrozen": {
