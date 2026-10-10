@@ -28,9 +28,9 @@ S, P = "data/synth_L2", "data/human/3"
 BASE = ["--data", "data/sim_v2"]
 
 
-def cell(name, noisy=None, clean=0, tasks="all", t=0, seed=0, src="synthetic"):
+def cell(name, noisy=None, clean=0, tasks="all", t=0, seed=0, src="synthetic", extra=()):
     """Train args for one run."""
-    a = list(BASE) + ([noisy] if noisy else [])
+    a = list(BASE) + ([noisy] if noisy else []) + list(extra)
     a += ["--sources", f"sim,{src}" if noisy else "sim", "--human_tasks", tasks]
     if clean:
         a += ["--clean_heldout_per_task", str(clean)]
@@ -90,7 +90,14 @@ def phase(title, jobs, lanes):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--lanes", type=int, default=2)
+    p.add_argument("--only", default=None, help="run just this named group (e.g. bprime)")
     a = p.parse_args()
+    if a.only == "bprime":   # control: successful phone replays only (is the ambient gain just failed demos?)
+        ok = ["--include_failed", "0"]
+        phase("B': successful phone replays only", [j for k in (0, 1, 2) for j in (
+            cell("K4_Pok", P, clean=4, seed=k, src="human", extra=ok),
+            cell("K4_Pok_a75", P, clean=4, t=75, seed=k, src="human", extra=ok))], a.lanes)
+        return
     os.makedirs(OUT, exist_ok=True)
     T = [25, 50, 75, 90]
     # 1) the missing comparison for the 0-clean ambient result

@@ -48,14 +48,6 @@
       "phone": "all",
       "ambient": true
     },
-    "Namb": {
-      "data": [
-        "sim_seen_v2c_100"
-      ],
-      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5",
-      "phone": "blue",
-      "ambient": true
-    },
     "Ceil_blue24": {
       "data": [
         "sim_seen_v2c_100"
