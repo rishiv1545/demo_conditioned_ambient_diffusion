@@ -26,7 +26,13 @@ def replay(env, task, layout, ee, grip, render=None):
             "track_err_max": float(np.max(errs)), "frames": frames}
 
 
-def save_human_episode(path, r, task, layout, raw_traj, raw_gripper, meta):
+def save_human_episode(path, r, task, layout, raw_traj, raw_gripper, meta, loss_mask=None):
+    """loss_mask [len(actions) - HOLD_STEPS] (1 = supervise), for "miss and correct" clips; padded over the hold."""
     meta = dict(meta, track_err=r["track_err"], track_err_max=r["track_err_max"])
+    extra = {}
+    if loss_mask is not None:
+        m = np.asarray(loss_mask, np.float32)
+        extra["loss_mask"] = np.concatenate([m, np.ones(len(r["action"]) - len(m), np.float32)])[:len(r["action"])]
     save_episode(path, r["obs"], r["action"], task, "human", layout, r["success"], sigma_n=float("nan"),
-                 meta=meta, raw_traj=np.asarray(raw_traj, np.float32), raw_gripper=np.asarray(raw_gripper, np.float32))
+                 meta=meta, raw_traj=np.asarray(raw_traj, np.float32), raw_gripper=np.asarray(raw_gripper, np.float32),
+                 **extra)

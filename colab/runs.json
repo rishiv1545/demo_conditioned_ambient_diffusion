@@ -187,7 +187,8 @@
           "--noise_scale 0"
         ]
       ],
-      "_note": "as V0_30k_rec_decay3k with the sim recovery data replaced by phone miss-and-correct clips (loss masked before the correction, ambient t_min); --mix gives them the sim recovery data's share of samples (36767 / 98344 = 0.37)"
+      "_note": "as V0_30k_rec_decay3k with the sim recovery data replaced by phone miss-and-correct clips (loss masked before the correction, ambient t_min); --mix gives them the sim recovery data's share of samples (36767 / 98344 = 0.37)",
+      "probe_step": "latest"
     }
   }
 }

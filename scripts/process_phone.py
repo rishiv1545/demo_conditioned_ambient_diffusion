@@ -20,7 +20,9 @@ from concurrent.futures import ProcessPoolExecutor  # noqa: E402
 from human.calibrate import load_session, read_video, video_homographies  # noqa: E402
 from human.extract import (calib_hand_size, extract_clip, height_from_size, overlay_frame, track_hand,  # noqa: E402
                            plot_traj)
-from human.objects import layout_json_path, list_clips, load_layout_json, parse_clip, session_specs  # noqa: E402
+from human.correction import detect_correction  # noqa: E402
+from human.objects import (is_recovery_clip, layout_json_path, list_clips, load_layout_json, parse_clip,  # noqa: E402
+                           session_specs)
 from human.camera_match import apply_camera, estimate_phone_camera  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
@@ -95,7 +97,7 @@ def track_clip(args):
         return clip, f"error: {e}"
 
 
-def side_by_side(phone_frames, fps, ex, sim_frames, path, times, hz=10.0, caption=""):
+def side_by_side(phone_frames, fps, ex, sim_frames, path, times, hz=10.0, caption="", masked=None):
     """[phone with overlays | sim from the phone's viewpoint | sim front view], aligned by the source time of each
     replay step (the phone panel freezes during the inserted dwells)."""
     out = []
@@ -110,6 +112,12 @@ def side_by_side(phone_frames, fps, ex, sim_frames, path, times, hz=10.0, captio
         if caption:
             bar = np.full((28, fr.shape[1], 3), 255, np.uint8)
             cv2.putText(bar, caption, (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
+            fr = np.concatenate([bar, fr], 0)
+        if masked is not None:   # "miss and correct" clips: which actions get no loss
+            m = bool(masked[min(k, len(masked) - 1)])
+            bar = np.full((28, fr.shape[1], 3), (255, 225, 225) if m else (225, 245, 225), np.uint8)
+            cv2.putText(bar, "MASKED (before the correction): no loss" if m else "CORRECTION: supervised", (8, 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (150, 0, 0) if m else (0, 110, 0), 1, cv2.LINE_AA)
             fr = np.concatenate([bar, fr], 0)
         out.append(fr)
     imageio.mimsave(path, out, fps=hz, macro_block_size=1)
@@ -191,7 +199,9 @@ def main():
         tname = parse_clip(clip)
         task = parse_task(tname)
         name = os.path.splitext(clip)[0]
-        row = {"clip": clip, "task": tname, "layout_source": "", "extracted": 0, "replay_success": 0, "track_err": np.nan, "reason": ""}
+        rec = is_recovery_clip(clip)
+        row = {"clip": clip, "task": tname, "layout_source": "", "extracted": 0, "replay_success": 0, "track_err": np.nan,
+               "reason": "", "correction": ""}
         try:
             frames, fps = read_video(os.path.join(a.session, clip))
             tc = np.load(track_cache_path(cache_dir, a.session, clip))
@@ -211,6 +221,14 @@ def main():
                 row["reason"] = f"hand tracked in {tracked:.0%} of frames"
             elif not ex["grip"].any():
                 row["reason"] = "no grasp detected"
+            corr = None
+            if rec and not row["reason"]:
+                corr = detect_correction(ex, fps)
+                if "t_corr" not in corr:
+                    row["reason"] = f"miss-and-correct clip: {corr['why']}"
+                else:
+                    row["correction"] = (f"pause {corr['t_pause'][0]:.1f}-{corr['t_pause'][1]:.1f}s, "
+                                         f"{corr['offset_cm']:.1f} cm off, grasp {corr['t_grasp']:.1f}s")
             if row["reason"]:
                 rows.append(row)
                 print(f"{clip}: extraction failed ({row['reason']})")
@@ -231,7 +249,9 @@ def main():
             z_off = a.z_offset - (specs[CUBES[task[0]]]["height_m"] / 2 - 0.02)
             h_obj = specs[CUBES[task[0]]]["height_m"]
             ee, g, tt = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None,
-                                                   dwell_s=a.dwell_s, approach_clear=a.approach_clear))
+                                                   dwell_s=a.dwell_s, approach_clear=a.approach_clear),
+                             t_corr=corr["t_corr"] if corr else None)
+            mask = (np.asarray(tt) >= corr["t_corr"]).astype(np.float32) if corr else None
             render = render_pair if ci < a.side_by_side else None
             r = replay(env, task, lay, ee, g, render=render)
             # did the human complete the task? (target cube center inside target zone in the last frame)
@@ -242,15 +262,18 @@ def main():
                     "human_completed": human_done, "long_gaps": int((~ex["valid"]).sum()),
                     "z_offset": z_off, "layout_source": row["layout_source"], "approach_clear": a.approach_clear,
                     "env_cfg": env_cfg_dict(env.cfg), "grip_info": ex["grip_info"]}
+            if corr:
+                meta["recovery"] = dict(corr, masked_steps=int((mask == 0).sum()), steps=len(mask))
             save_human_episode(os.path.join(a.out_data, sname, f"{name}.npz"), r, task, lay,
-                               raw_traj=ee, raw_gripper=g, meta=meta)
+                               raw_traj=ee, raw_gripper=g, meta=meta, loss_mask=mask)
             row.update(replay_success=int(r["success"]), track_err=r["track_err"], human_completed=int(human_done))
             if render:
                 cap = (f"{clip}  task {tname}  replay {'SUCCESS' if r['success'] else 'FAIL'}  |  phone (hand: "
                        f"red = pinch point) | sim, phone viewpoint | sim, front")
                 side_by_side(frames, fps, ex, r["frames"], os.path.join(out, f"{name}_side_by_side.mp4"), tt,
-                             caption=cap)
-            print(f"{clip}: replay {'SUCCESS' if r['success'] else 'fail'}  track err {r['track_err'] * 1000:.1f} mm")
+                             caption=cap, masked=None if mask is None else mask == 0)
+            print(f"{clip}: replay {'SUCCESS' if r['success'] else 'fail'}  track err {r['track_err'] * 1000:.1f} mm"
+                  + (f"  | {row['correction']}, {int((mask == 0).sum())}/{len(mask)} steps masked" if corr else ""))
         except Exception as e:  # keep going; record the failure
             row["reason"] = f"error: {e}"
             print(f"{clip}: {row['reason']}")
@@ -258,7 +281,8 @@ def main():
 
     with open(os.path.join(out, "clips.csv"), "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["clip", "task", "layout_source", "extracted", "replay_success",
-                                          "human_completed", "track_err", "reason"], extrasaction="ignore")
+                                          "human_completed", "track_err", "correction", "reason"],
+                           extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
     print(f"\n{'task':14s} {'clips':>5s} {'extract':>8s} {'replay':>7s} {'track err (mm)':>15s}")

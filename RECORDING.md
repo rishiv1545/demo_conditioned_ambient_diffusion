@@ -88,6 +88,25 @@ File name: `<object>-<patch>_<NN>.mp4` using the **task names**, e.g. `red-yello
 
 If a clip goes wrong (the object is dropped, a marker gets covered), just re-record it under the same name. You don't need to keep the bad one.
 
+### 5b. "Miss and correct" clips (recovery demos, session 4)
+
+These teach the robot to **recover** when its reach ends up beside the object. Only the correction is used for training: everything before the pause gets no loss. The pipeline finds the pause automatically, so make it clear.
+
+1. Same setup as the demo clips: randomize the layout, hand at HOME for about 1 s, and keep the first second clear of the objects.
+2. Start the reach toward the named object, but **aim 3–5 cm to one side of it** (left, right, front or behind; vary the side between clips).
+3. **Stop there and hold still for about 0.5–1 s**, hand open, **hovering about 3–5 cm above the table** at roughly the object's height. **Don't touch or push the object.**
+4. **Correct:** move onto the object, pinch it from above, and finish the task as usual (place it in the middle of the named patch, release, back to HOME, hold about 1 s).
+5. Make only **one** deliberate pause, and don't stop again before the grasp. The hand's natural slowdown right at the object is fine.
+
+File names: as the demo clips, with `_rec` after the task, e.g. `red_to_yellow_rec_01.MOV` or `red-yellow_rec_01.mp4`. **Red and green tasks only, about 25 clips**: 4 per task for the 6 tasks, plus 1 extra. Put them in their own session folder, `data/raw_phone/4/`, with a `session.json` copied from session 3 (same camera, table, items, `calib_from: "../1"` and `pinch_offset_cm`). Then:
+
+```bash
+python scripts/click_layout.py data/raw_phone/4                         # if colors miss items (as in session 3)
+PY=~/miniforge3/envs/dcad/bin/python scripts/phone_to_colab.sh data/raw_phone/4 phone_rec_v1
+```
+
+`outputs/m2/4/clips.csv` lists the pause found in each clip (time, offset from the grasp point) or why none was found. The side-by-side videos mark the masked part in red and the supervised correction in green. Clips without a detected pause are skipped; re-record them with a longer, stiller pause.
+
 ## 6. Tips
 
 - Use good, even lighting with no hard shadows; daylight plus room lights works well. Avoid glare on the markers and on shiny objects.

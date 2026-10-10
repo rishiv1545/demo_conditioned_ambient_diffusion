@@ -27,12 +27,14 @@ from sim.env import (ALL_TASKS, DEFAULT_SPLIT, IMAGE_CAMERAS, IMAGE_SIZE, STATE_
 FPS = 10
 
 
-def features(size=IMAGE_SIZE, cameras=IMAGE_CAMERAS):
+def features(size=IMAGE_SIZE, cameras=IMAGE_CAMERAS, loss_mask=False):
     f = {f"observation.images.{c}": {"dtype": "video", "shape": (size, size, 3),
                                      "names": ["height", "width", "channels"]} for c in cameras}
     f["observation.state"] = {"dtype": "float32", "shape": (STATE_DIM,), "names": ["x", "y", "z", "gripper"]}
     f["action"] = {"dtype": "float32", "shape": (4,), "names": ["x", "y", "z", "gripper"]}
     f["sigma_n"] = {"dtype": "float32", "shape": (1,), "names": None}
+    if loss_mask:   # "miss and correct" phone clips: 0 = no loss on this frame's action (vla/feature_cache.py)
+        f["loss_mask"] = {"dtype": "float32", "shape": (1,), "names": None}
     return f
 
 
@@ -81,7 +83,9 @@ def main():
     root = os.path.join(a.out, a.name)
     if os.path.exists(root):
         shutil.rmtree(root)
-    ds = LeRobotDataset.create(repo_id=f"local/{a.name}", fps=FPS, features=features(a.size), root=root,
+    has_mask = any("loss_mask" in ep for ep in eps)
+    ds = LeRobotDataset.create(repo_id=f"local/{a.name}", fps=FPS, features=features(a.size, loss_mask=has_mask),
+                               root=root,
                                robot_type="panda_mujoco", use_videos=True, vcodec=a.vcodec)
     # rebuild the env version the episodes were recorded in (gripper yaw, start state)
     cfgs = {json.dumps(ep["meta"].get("env_cfg"), sort_keys=True) for ep in eps}
@@ -100,10 +104,13 @@ def main():
             frame = {f"observation.images.{c}": imgs[c][t] for c in imgs}
             frame.update({"observation.state": states[t], "action": ep["action"][t].astype(np.float32),
                           "sigma_n": np.array([sig], np.float32), "task": text})
+            if has_mask:
+                frame["loss_mask"] = np.array([ep["loss_mask"][t] if "loss_mask" in ep else 1.0], np.float32)
             ds.add_frame(frame)
         ds.save_episode()
         side.append({"episode_index": i, "file": ep["path"], "task": task_name(ep["task"]), "source": ep["source"],
-                     "success": ep["success"], "sigma_n": sig, "length": len(ep["action"]), "replay_err": err})
+                     "success": ep["success"], "sigma_n": sig, "length": len(ep["action"]), "replay_err": err,
+                     **({"loss_from_frame": int(np.argmax(ep["loss_mask"] > 0.5))} if "loss_mask" in ep else {})})
         if (i + 1) % 25 == 0 or i + 1 == len(eps):
             print(f"{i + 1}/{len(eps)} episodes")
     ds.finalize()
