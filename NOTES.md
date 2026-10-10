@@ -290,6 +290,37 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 - VLA t_min for C+N+amb (real phone, 4 clean): t 75 → `--ambient_t_min 0.72`. Namb (0 clean) not worth running.
 - 2026-10-09 night: the Colab VM for the decay/recovery runs was created ahead of time, the Drive mount didn't happen, and Colab reclaimed the idle VM (~1.1 units). Nothing ran; `sim_seen_rec_60` (360 episodes, 36,767 frames) is exported locally. Lesson: create the VM only when the user is present to mount.
 
+## Base-policy fixes: LR decay, recovery data, zero-noise sampling (2026-10-10, Colab, job dcad-20261010-090026)
+Seen tasks, 20 episodes per task (n = 120 per cell, 95% CI about +-9 points). Missed grasp = target never lifted and no other cube moved.
+
+| checkpoint | sampling | success % | missed grasp % | probe (red/green/blue acc.) |
+|---|---|---|---|---|
+| V0_30k | normal | 39.2 | 34.2 | 0.58 overall |
+| V0_30k | zero noise | 43.3 | 33.3 | |
+| + 3k LR decay (cosine to 2.5e-6) | normal | 40.8 | 34.2 | 0.97 / 0.88 / 0.03 |
+| + 3k LR decay | zero noise | 45.8 | 29.2 | |
+| + recovery demos + 3k LR decay | normal | **54.2** | 22.5 | 1.00 / 0.94 / 0.06 |
+| + recovery demos + 3k LR decay | zero noise | **65.0** | **16.7** | |
+
+- LR decay alone halves the training loss (0.0085 -> 0.0044) without changing closed-loop behavior. Recovery data (360 DART-style seen-task episodes, 60/task, added to the 600 clean ones) is what moves it: +13 points normal, +19 points zero noise vs decay alone; wrong cube falls to 1-3%.
+- Zero-noise sampling helps every checkpoint (+4 to +11 points), most for the recovery checkpoint.
+
+### Grasp diagnostics (`vla/grasp_diag.py`, job stage `grasp`; `outputs/colab/<run>/grasp_diag_step*.json`)
+Closed loop: 60 seen eval episodes (10/task) rolled out to the first gripper close; offset = EE - target cube, over grasps aimed at the target (88-98%). The finger closing axis is world -y (yaw 90), so "along" = -y, "across" = x. Offline: 100 grasp-moment frames from the training episodes, predicted EE target at the recorded close index vs the recorded one, querying at the close frame (h0) or 10 steps before (h10).
+
+| checkpoint | sampling | closed-loop mean xy (cm) | std x / y (cm) | rms / median err (cm) | offline h0 median (cm) | offline h10 median (cm) |
+|---|---|---|---|---|---|---|
+| expert | | (0.00, -0.06) | 0.23 / 0.25 | 0.34 / 0.35 | | |
+| V0_30k | normal | (-0.54, -0.46) | 2.67 / 2.45 | 3.69 / 2.55 | 0.83 (bias -0.3, -0.65) | 1.05 |
+| V0_30k | zero | (-0.48, -0.87) | 2.51 / 2.19 | 3.47 / 2.14 | 0.89 | 1.04 |
+| + decay | normal | (-0.60, +0.99) | 2.58 / 2.31 | 3.65 / 1.83 | **0.26** | 0.57 |
+| + decay | zero | (-0.66, +1.16) | 2.54 / 2.26 | 3.65 / 2.06 | 0.26 | 0.48 |
+| + recovery + decay | normal | (-0.25, +0.86) | 2.20 / 1.87 | 3.02 / 2.04 | 0.42 | 0.75 |
+| + recovery + decay | zero | (-0.12, +0.70) | 1.92 / 1.63 | **2.62 / 1.65** | 0.35 | 0.54 |
+
+- **Bias vs scatter: scatter.** Mean offsets are 0.7-1.3 cm against a 1.6-2.7 cm per-axis spread, roughly isotropic (along and across the fingers alike), and the bias direction is not stable: y flips sign between V0_30k (-0.5 to -0.9) and the decay checkpoints (+0.7 to +1.2), and per-task means change sign between tasks. A frame/camera/coordinate mismatch would give a fixed offset; not the cause.
+- **Offline vs closed loop: small offline, large closed loop.** On training frames the decayed policy predicts the grasp point within 0.26 cm (median) at the grasp frame and 0.5 cm from 10 steps out, close to the expert's own 0.35 cm closed-loop error, yet its closed-loop error is 1.8-2.1 cm median, 3.65 cm rms. The decay cut the offline error 3x (0.83 -> 0.26 cm) and changed nothing in closed loop; recovery data left the offline error about the same and cut the closed-loop error (rms 3.65 -> 2.62, missed grasps 29 -> 17%). That is compounding error / state distribution shift, which is what recovery data addresses (relative actions are the other candidate). Caveat: the offline frames are training frames, so part of the low offline error may be memorization; held-out sim episodes would be the cleaner test.
+
 ## Limitations (2026-10-09)
 - **The phone data comes from a controlled, marker-calibrated setup**, so it understates the gap to in-the-wild human video. Fixed top-down phone at a measured height (43 cm, 0.5× lens), ArUco markers giving metric table coordinates in every frame, known object sizes and heights, a flat uncluttered table, a single right hand, and a recording protocol (exaggerated open/close, pauses) designed for the pipeline. In-the-wild video has moving/unknown cameras, no metric scale, occlusion, clutter and different grasps. Measured noise here: ≈ 2–4 cm grasp offsets and gripper timing errors; session 2 replays 2/3.
 - Phone demos are retargeted and replayed in sim and re-rendered for the VLA, so the experiment tests demonstration (action) noise, not the visual domain gap.
