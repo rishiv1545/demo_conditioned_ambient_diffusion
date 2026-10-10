@@ -86,6 +86,10 @@ class CachedChunkDataset(torch.utils.data.Dataset):
         self.action = np.stack(cols["action"]).astype(np.float32)
         self.sigma = np.asarray(cols["sigma_n"], np.float32).reshape(-1)
         self.ep = np.asarray(cols["episode_index"]).reshape(-1)
+        # optional per-frame loss mask (phone "miss and correct" clips: 0 before the correction): chunk entries of
+        # masked frames are flagged like padding, so they get no loss; observations are kept
+        self.mask = (np.asarray(cols["loss_mask"], np.float32).reshape(-1) > 0.5
+                     if "loss_mask" in ds.hf_dataset.column_names else None)
         self.index = np.asarray(cols["index"]).reshape(-1)
         task_idx = np.asarray(cols["task_index"]).reshape(-1)
         tasks = ds.meta.tasks  # DataFrame indexed by task string, column task_index
@@ -106,6 +110,8 @@ class CachedChunkDataset(torch.utils.data.Dataset):
         j = i + np.arange(self.chunk)
         pad = j >= self.end[i]
         j = np.minimum(j, self.end[i] - 1)
+        if self.mask is not None:
+            pad = pad | ~self.mask[j]
         item = {"observation.state": torch.from_numpy(self.state[i]), "action": torch.from_numpy(self.action[j]),
                 "action_is_pad": torch.from_numpy(pad), "sigma_n": torch.tensor(self.sigma[i]),
                 "task": self.task[i], "index": torch.tensor(self.index[i])}

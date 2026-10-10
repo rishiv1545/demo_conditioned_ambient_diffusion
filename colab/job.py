@@ -176,7 +176,7 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                        f"{train_args}", log)
                 elif st == "probe":
                     probe_args = cfg.get("probe", defaults.get("probe", ""))
-                    sh(f"python vla/probe_grounding.py --run {run_dir} --step all --device cuda {probe_args} "
+                    sh(f"python vla/probe_grounding.py --run {run_dir} --step {cfg.get('probe_step', 'all')} --device cuda {probe_args} "
                        f"--log {run_dir}/probe.txt", log)
                 elif st == "check":
                     step = (eval_steps or [latest_step(run_dir)])[-1]

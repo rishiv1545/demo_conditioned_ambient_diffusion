@@ -35,6 +35,34 @@ def lr_lambda(step, warmup, total, peak, floor):
     return (floor + (peak - floor) * 0.5 * (1 + np.cos(np.pi * p))) / peak
 
 
+def frame_tasks(ds):
+    """Task (instruction) of every frame of a CachedChunkDataset or a Subset of one."""
+    if isinstance(ds, torch.utils.data.Subset):
+        return [ds.dataset.task[i] for i in ds.indices]
+    return list(ds.task)
+
+
+def make_sampler(dss, balance, mix, features):
+    """None (uniform over all frames) or a WeightedRandomSampler: --balance tasks gives every task the same share,
+    --mix gives every dataset a fixed share."""
+    if balance == "none" and not mix:
+        return None
+    assert features == "cache", "--balance/--mix need --features cache"
+    assert not (balance != "none" and mix), "--balance and --mix are exclusive"
+    if mix:
+        frac = [float(x) for x in mix.split(",")]
+        assert len(frac) == len(dss), f"--mix needs {len(dss)} fractions"
+        w = np.concatenate([np.full(len(d), f / len(d)) for d, f in zip(dss, frac)])
+        print("sampling mix:", ", ".join(f"{f:.2f} ({len(d)} frames)" for d, f in zip(dss, frac)), flush=True)
+    else:
+        tasks = sum((frame_tasks(d) for d in dss), [])
+        names, inv, counts = np.unique(tasks, return_inverse=True, return_counts=True)
+        w = 1.0 / counts[inv]
+        print("task-balanced sampling:", ", ".join(f"{n[:40]!r} {c}" for n, c in zip(names, counts)), flush=True)
+    return torch.utils.data.WeightedRandomSampler(torch.as_tensor(w, dtype=torch.double), num_samples=len(w),
+                                                  replacement=True)
+
+
 def infinite(loader):
     while True:
         yield from loader
@@ -56,6 +84,12 @@ def main():
                         "then cosine-decay from it to --lr_floor at --steps (e.g. finishing a constant-lr run)")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
     p.add_argument("--save_every", type=int, default=500)
+    p.add_argument("--balance", default="none", choices=["none", "tasks"],
+                   help="tasks: sample every task (language instruction) equally often, frames uniform within a task "
+                        "(scarce held-out-task data otherwise is ~1%% of the samples)")
+    p.add_argument("--mix", default=None,
+                   help="comma list of sample fractions per --data entry (frames uniform within a dataset), "
+                        "e.g. 0.63,0.37; exclusive with --balance tasks")
     p.add_argument("--log_every", type=int, default=25)
     p.add_argument("--workers", type=int, default=max(1, min(8, (os.cpu_count() or 2) - 2)))
     p.add_argument("--device", default="auto")
@@ -87,6 +121,8 @@ def main():
     features = dss[0].meta.features
     policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype, unfreeze_vlm=bool(a.unfreeze_vlm))
     img_keys = list(cfg.image_features)
+    if a.features == "raw":
+        assert not any("loss_mask" in d.hf_dataset.column_names for d in dss), "loss_mask needs --features cache"
     if a.features == "cache":
         for root in roots:
             if not has_cache(root, img_keys):
@@ -107,7 +143,9 @@ def main():
     print(f"device {dev}; {sum(len(d) for d in dss)} frames from {len(dss)} datasets; "
           f"params {n_all / 1e6:.0f}M total, {n_train / 1e6:.1f}M trainable")
 
-    loader = torch.utils.data.DataLoader(torch.utils.data.ConcatDataset(dss), batch_size=a.batch, shuffle=True,
+    sampler = make_sampler(dss, a.balance, a.mix, a.features)
+    loader = torch.utils.data.DataLoader(torch.utils.data.ConcatDataset(dss), batch_size=a.batch,
+                                         shuffle=sampler is None, sampler=sampler,
                                          num_workers=a.workers, drop_last=True,
                                          persistent_workers=a.workers > 0, pin_memory=dev == "cuda")
     params = [q for q in policy.parameters() if q.requires_grad]

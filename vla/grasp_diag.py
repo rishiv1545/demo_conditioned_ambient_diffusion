@@ -3,7 +3,8 @@
 1. Closed loop: roll out the seen-task eval episodes (same seeds as eval_smolvla.py) until the gripper first closes;
    record the signed EE - target-cube offset there (world x, y, z, and along / across the finger closing axis).
    Normal and zero-noise sampling. The scripted expert on the same layouts gives the reference offset.
-2. Offline: on N grasp-moment frames from the training episodes (the frame where the recorded gripper command first
+2. Offline: on N grasp-moment frames from the training episodes, and on N from fresh layouts (scripted expert,
+   seeds disjoint from training and eval) (the frame where the recorded gripper command first
    switches to closed, and the frame `h` steps before it), predict an action chunk and compare the predicted EE target
    at the recorded close index with the recorded one.
 
@@ -152,6 +153,57 @@ def offline(policy, pre, post, cfg, root, n, hs, dev, seed=0):
     return out
 
 
+def offline_heldout(policy, pre, post, cfg, tasks, n, hs, dev, env_cfg, cams, size, batch=20):
+    """Offline check on fresh layouts never used for training or eval: the scripted expert runs to its grasp close
+    (index tc); the policy, given the observation at tc - h, predicts a chunk; its entry h is compared with the
+    expert's action at tc. Same comparison as offline() on training frames."""
+    per = -(-n // len(tasks))
+    jobs = [(t, EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000 + 5_000 + k) for t in tasks for k in range(per)][:n]
+    plans = []
+    e = PickPlaceEnv(env_cfg)
+    for t, s in jobs:                                    # expert actions and close index per layout
+        e.reset(task=t, seed=s)
+        ex = ScriptedExpert(e, s)
+        ex.reset()
+        acts = np.stack([ex.act(k) for k in range(min(len(ex), e.cfg.max_steps))])
+        g = acts[:, 3] > 0.5
+        opened = np.flatnonzero(~g)
+        tc = next((k for k in range(opened[0] + 1, len(g)) if g[k]), None) if len(opened) else None
+        if tc is not None:
+            plans.append((t, s, acts, tc))
+    out = {}
+    for h in hs:
+        for mode, scale in (("normal", 1.0), ("zeronoise", 0.0)):
+            errs = []
+            for b0 in range(0, len(plans), batch):
+                envs, tasks_b, tgt = [], [], []
+                for t, s, acts, tc in plans[b0:b0 + batch]:
+                    if tc - h < 0:
+                        continue
+                    env = PickPlaceEnv(env_cfg)
+                    env.reset(task=t, seed=s)
+                    for k in range(tc - h):
+                        env.step(acts[k])
+                    envs.append(env)
+                    tasks_b.append(t)
+                    tgt.append(acts[tc, :2])
+                g = torch.Generator().manual_seed(b0)
+                noise = scale * torch.randn(len(envs), cfg.chunk_size, cfg.max_action_dim, generator=g).to(dev)
+                with torch.no_grad():
+                    pred = post(policy.predict_action_chunk(pre(to_batch(envs, tasks_b, dev, cams, size)),
+                                                            noise=noise)).float().cpu().numpy()
+                policy.reset()
+                errs.append(pred[:, h, :2] - np.array(tgt))
+                for env in envs:
+                    env.close()
+            er = np.concatenate(errs) * 100
+            out[f"h{h}_{mode}"] = {"n": len(er), "mean_xy_cm": [round(float(x), 2) for x in er.mean(0)],
+                                   "std_xy_cm": [round(float(x), 2) for x in er.std(0)],
+                                   "median_err_cm": round(float(np.median(np.linalg.norm(er, axis=1))), 2),
+                                   "rms_err_cm": round(float(np.sqrt((er ** 2).sum(1).mean())), 2)}
+    return out
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--run", required=True)
@@ -175,6 +227,18 @@ def main():
     load_trainable(policy, cks[step])
     policy.eval()
     tasks = [t for t in ALL_TASKS if t not in heldout]
+    hs = [int(h) for h in a.hs.split(",")]
+    if os.path.exists(a.out):   # earlier results: keep them, add only what is missing (the held-out offline check)
+        with open(a.out) as f:
+            res = json.load(f)
+        if "offline_heldout" not in res:
+            res["offline_heldout"] = offline_heldout(policy, pre, post, cfg, tasks, a.n_offline, hs, dev, env_cfg,
+                                                     cams, size)
+            for k, v in res["offline_heldout"].items():
+                print("offline_heldout", k, v, flush=True)
+            with open(a.out, "w") as f:
+                json.dump(res, f, indent=1)
+        return
     jobs = [(t, EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000 + k) for t in tasks for k in range(a.k)]
     res = {"run": a.run, "step": step, "k": a.k, "closed_loop": {}}
     res["closed_loop"]["expert"] = stats(expert_grasps(jobs, env_cfg))
@@ -190,9 +254,12 @@ def main():
         per_ep[mode] = recs
         print(mode, res["closed_loop"][mode], flush=True)
     root = parse_data_spec(rc["args"]["data"][0])[0]
-    res["offline"] = offline(policy, pre, post, cfg, root, a.n_offline, [int(h) for h in a.hs.split(",")], dev)
+    res["offline"] = offline(policy, pre, post, cfg, root, a.n_offline, hs, dev)
     for k, v in res["offline"].items():
         print("offline", k, v, flush=True)
+    res["offline_heldout"] = offline_heldout(policy, pre, post, cfg, tasks, a.n_offline, hs, dev, env_cfg, cams, size)
+    for k, v in res["offline_heldout"].items():
+        print("offline_heldout", k, v, flush=True)
     res["episodes"] = {m: [dict(task=task_name(t), seed=s, **(r or {})) for (t, s), r in zip(jobs, recs)]
                        for m, recs in per_ep.items()}
     with open(a.out, "w") as f:
