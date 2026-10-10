@@ -6,6 +6,16 @@
 
 Robot post-training needs task demonstrations, and clean (teleoperated or scripted) demos are expensive. Human demonstrations recorded with a phone are cheap but noisy: the hand is tracked imperfectly, the human grasps differently from a parallel gripper, and the retargeted trajectories miss by centimeters. The question here is whether such noisy demos **improve** post-training when clean data for a new task is scarce, and whether an **ambient diffusion / flow-matching loss** (noisy samples only supervise the high-noise end of the diffusion process) makes them usable where naive training on them does not.
 
+**Headline result (small diffusion policy, real phone demos, 4 clean demos per held-out task, 3 seeds).** With the ambient loss, the 48 phone replays raise held-out success from **44% to 65%**. The ambient loss also **beats filtering**: discarding the 11 replays that failed in sim and training naively on the rest reaches only 51%. And it gives **the same result with or without the failed replays** (65.3% vs 64.9%), so the noisy demos need no curation. Naive training on all replays gains nothing (44%).
+
+| training data (blue = held-out cube) | seen % | blue % |
+|---|---|---|
+| clean only | 87.6 ± 0.6 | 44.4 ± 3.5 |
+| + all 48 phone replays, naive | 82.8 ± 0.3 | 43.8 ± 3.3 |
+| + 37 successful replays only (filtered), naive | 85.2 ± 0.9 | 50.7 ± 3.8 |
+| + 37 successful replays only, ambient | 91.0 ± 0.3 | 64.9 ± 0.3 |
+| **+ all 48 phone replays, ambient** | **90.0 ± 1.9** | **65.3 ± 1.1** |
+
 The test bed is a simulated Franka Panda picking one of three colored cubes and placing it in one of three zones (9 tasks). The **blue cube is held out**: no sim demos ever target it (it is present as a distractor in every scene). Blue data comes only from a few clean sim demos and from phone recordings.
 
 ## Setup: phone → retargeting → sim
@@ -28,7 +38,7 @@ A 5.4M-parameter DDPM policy (1D temporal U-Net, FiLM-conditioned on privileged 
 
 ![real phone replays on the small policy](docs/figures/phone_small_policy.png)
 
-With 4 clean blue demos per task, adding the 48 phone replays **naively** changes nothing on blue (44 → 44%) and costs seen performance; with the **ambient loss (t_min 75)** they raise blue success to **65%** (3 seeds each). <!-- TODO: B′ control (successful replays only) — running -->
+With 4 clean blue demos per task, adding the 48 phone replays **naively** changes nothing on blue (44 → 44%) and costs seen performance; with the **ambient loss (t_min 75)** they raise blue success to **65%** (3 seeds each). Control (hatched bars): keeping only the 37 replays that succeeded in sim gives 51% with the naive loss and 65% with the ambient loss. So the ambient loss beats filtering out the failed replays, and it is insensitive to whether they are included. The gain is spread evenly across the three blue tasks (+17 to +25 points each).
 
 ### The best t_min rises with the noise level
 

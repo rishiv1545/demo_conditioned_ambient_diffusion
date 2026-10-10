@@ -5,10 +5,12 @@
 | training data | seeds | seen % | blue (held-out) % |
 |---|---|---|---|
 | clean only | 3 | 87.6 ± 0.6 | 44.4 ± 3.5 |
-| + phone, naive | 3 | 82.8 ± 0.3 | 43.8 ± 3.3 |
-| + phone, ambient t_min 75 | 3 | 90.0 ± 1.9 | 65.3 ± 1.1 |
+| + all phone, naive | 3 | 82.8 ± 0.3 | 43.8 ± 3.3 |
+| + all phone, ambient t_min 75 | 3 | 90.0 ± 1.9 | 65.3 ± 1.1 |
+| + successful phone only, naive | 3 | 85.2 ± 0.9 | 50.7 ± 3.8 |
+| + successful phone only, ambient t_min 75 | 3 | 91.0 ± 0.3 | 64.9 ± 0.3 |
 
-Mean ± std over training seeds; 50 eval episodes per task and seed.
+Mean ± std over training seeds; 50 eval episodes per task and seed. "Successful only": the 37 of 48 replays that succeeded in sim.
 
 ## Small policy: ambient t_min vs synthetic noise level (4 clean blue demos per task, blue %)
 

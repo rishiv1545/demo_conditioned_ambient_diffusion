@@ -284,6 +284,7 @@ Driven from the Mac with the colab CLI; the VM runs `colab/job.py` detached (noh
 
 ## Small-policy results, full queue (2026-10-10, `outputs/ambient_sweep/`, `scripts/summarize_ambient_sweep.py`)
 - **Real phone replays, 4 clean blue/task**: clean only 44.4 ± 3.5 blue; + phone naive 43.8 ± 3.3; **+ phone ambient t_min 75: 65.3 ± 1.1** (3 seeds; t 50: 54.0, t 90: 60.7); seen 82.8 (naive) → 90.0 (ambient). 0 clean: naive 9.6 ± 2.2, ambient t 50 8.0 ± 0.5, t ≥ 75 → ~0 (no low-noise supervision without clean data).
+- **B′ control (2026-10-10), successful replays only (37/48), 4 clean blue/task, 3 seeds**: naive 50.7 ± 3.8 blue (seen 85.2); ambient t 75 64.9 ± 0.3 (seen 91.0). The failed replays are what cancels the naive gain (44 → 51 when filtered), and the ambient loss beats filtering and is insensitive to including the failed replays (65.3 vs 64.9). Per-task blue for all-phone ambient: yellow 66.0, purple 65.3, orange 64.7 (clean only 41.3 / 48.0 / 44.0).
 - **Best t_min rises with noise** (synthetic, 4 clean, blue %): 0.4×: naive 83.3 best, ambient 69–79; 1×: naive 36.9, best t 90 50.9 ± 1.1; 2×: naive 29.3, best t 90 50.7.
 - **Clean scaling, 1× synthetic** (clean / +naive / +ambient t 90): K4 44/37/51, K8 71/57/67, K12 86/65/80, K24 95/75/91 → ambient beats discarding only at K4; above, it recovers most but not all.
 - VLA t_min for C+N+amb (real phone, 4 clean): t 75 → `--ambient_t_min 0.72`. Namb (0 clean) not worth running.
