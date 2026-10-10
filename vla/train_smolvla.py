@@ -51,8 +51,9 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--lr_floor", type=float, default=2.5e-6)
     p.add_argument("--warmup", type=int, default=300)
-    p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant"],
-                   help="constant: hold lr after warmup (no decay)")
+    p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant", "cosine_from_resume"],
+                   help="constant: hold lr after warmup (no decay); cosine_from_resume: hold lr until the resume step, "
+                        "then cosine-decay from it to --lr_floor at --steps (e.g. finishing a constant-lr run)")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
     p.add_argument("--save_every", type=int, default=500)
     p.add_argument("--log_every", type=int, default=25)
@@ -114,6 +115,15 @@ def main():
                             weight_decay=cfg.optimizer_weight_decay)
     if a.lr_schedule == "constant":
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / a.warmup))
+    elif a.lr_schedule == "cosine_from_resume":
+        decay_from = {"step": 0}   # set to the resume step below (the lambda reads it at call time)
+
+        def from_resume(s):
+            if s < decay_from["step"]:
+                return min(1.0, (s + 1) / a.warmup)
+            q = min(1.0, (s - decay_from["step"]) / max(1, a.steps - decay_from["step"]))
+            return (a.lr_floor + (a.lr - a.lr_floor) * 0.5 * (1 + np.cos(np.pi * q))) / a.lr
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, from_resume)
     else:
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_lambda(s, a.warmup, a.steps, a.lr, a.lr_floor))
     start = 0
@@ -127,6 +137,12 @@ def main():
         np.random.set_state(st["rng_np"])
         start = st["step"]
         print(f"resumed from {d} (step {start})")
+    if a.lr_schedule == "cosine_from_resume":
+        decay_from["step"] = start
+        sched.last_epoch = start          # LambdaLR's step counter = optimizer steps so far
+        for gr, base in zip(opt.param_groups, sched.base_lrs):
+            gr["lr"] = base * from_resume(start)
+        print(f"lr: cosine from step {start} ({a.lr:g}) to {a.steps} ({a.lr_floor:g})", flush=True)
 
     log_path = os.path.join(run_dir, "loss.csv")
     new_log = not (a.resume and os.path.exists(log_path))
