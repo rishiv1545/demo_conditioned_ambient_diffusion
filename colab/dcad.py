@@ -149,7 +149,7 @@ def cmd_run(a):
     missing = [r for r in a.runs if r not in known]
     if missing:
         sys.exit(f"unknown runs {missing}; add them to colab/runs.json (and push)")
-    if cmd_up(a):
+    if not a.no_sync and cmd_up(a):
         return 2
     job_id = f"{a.session}-{time.strftime('%Y%m%d-%H%M%S')}"   # per-VM job ids: several sessions share Drive
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else {}
@@ -293,6 +293,7 @@ def main():
     s.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
     s.add_argument("--eval_tag", default="", help="suffix for this job's eval dirs, e.g. _nas5")
     s.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check")
+    s.add_argument("--no_sync", action="store_true", help="keep the VM's code as is (a follow-up job on a running VM)")
     s.set_defaults(f=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job"); s.add_argument("--lines", type=int, default=12)
     s.set_defaults(f=cmd_status)
