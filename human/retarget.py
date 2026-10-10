@@ -38,8 +38,10 @@ def anchor_contact_z(t, z, grip, contact_z):
     return z - b
 
 
-def retarget(ex, cfg: RetargetConfig = RetargetConfig()):
-    """ex: output of extract.extract_clip. Returns (ee [N, 3], gripper [N] in {0, 1}, t [N])."""
+def retarget(ex, cfg: RetargetConfig = RetargetConfig(), t_corr=None):
+    """ex: output of extract.extract_clip. Returns (ee [N, 3], gripper [N] in {0, 1}, t [N]).
+    t_corr: "miss and correct" clips: source time where the correction starts (human/correction.py); the approach
+    rule then keeps the deliberate miss (lifted to the clearance height near the object) and starts at it."""
     t_src = ex["t"]
     z_src = np.asarray(ex["z"], float)
     if cfg.contact_z is not None:
@@ -53,7 +55,8 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig()):
     g = ex["grip"][idx].astype(np.float32)
     ee = np.column_stack([x, y, np.maximum(z, cfg.z_min)])
     if cfg.approach_clear > 0:
-        ee, g = approach_from_above(ee, g, cfg.approach_clear, cfg.approach_radius)
+        k_corr = None if t_corr is None else int(np.searchsorted(t, t_corr))
+        ee, g = approach_from_above(ee, g, cfg.approach_clear, cfg.approach_radius, keep_until=k_corr)
     lo = np.array([b[0] for b in cfg.ee_bounds])
     hi = np.array([b[1] for b in cfg.ee_bounds])
     ee = np.clip(ee, lo, hi)
@@ -62,13 +65,16 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig()):
     return ee, g, t   # t: source (phone) time of each step; repeated during dwells
 
 
-def approach_from_above(ee, g, clear, radius):
+def approach_from_above(ee, g, clear, radius, keep_until=None):
     """Embodiment rule for the parallel gripper. A human hand comes in low from the side and opens right at the
     object; fingers slide around it, but the Panda's fingers following that path hit and push the cube (phone
     session 3: the cube moved a median 1.1 cm before the grasp, up to 5 cm; 19/47 replays never lifted it).
     Within `radius` of the grasp point the gripper is open, moves over the point `clear` above it and descends
     vertically; after the release it rises vertically by `clear` before following the human path again. The grasp
     and release points (the human's actual choice, incl. its noise) and the number of steps are unchanged.
+    keep_until (step index, "miss and correct" clips): the path before it is kept, except that within `radius` of the
+    grasp point it is lifted to at least `clear` above it (the deliberate miss hovers beside the object instead of
+    pushing it); the move over the grasp point and the descent start at keep_until.
     Returns modified copies; no grasp (open -> closed after an open phase) found: unchanged."""
     ee, g = ee.copy(), g.copy()
     closed = g > 0.5
@@ -79,8 +85,13 @@ def approach_from_above(ee, g, clear, radius):
     if tc is None:
         return ee, g
     p = ee[tc].copy()
-    far = np.flatnonzero(np.linalg.norm(ee[:tc, :2] - p[:2], axis=1) > radius)
+    d = np.linalg.norm(ee[:tc, :2] - p[:2], axis=1)
+    far = np.flatnonzero(d > radius)
     ta = far[-1] if len(far) else 0
+    if keep_until is not None and 0 < keep_until < tc:
+        near = np.flatnonzero(d[:keep_until] <= radius)
+        ee[near, 2] = np.maximum(ee[near, 2], p[2] + clear)
+        ta = max(ta, keep_until)
     n = tc - ta
     if n >= 2:
         zc = max(p[2] + clear, ee[ta, 2])
