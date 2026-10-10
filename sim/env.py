@@ -211,6 +211,19 @@ class PickPlaceEnv:
     def gripper_width(self):
         return float(self.d.qpos[self.finger_qadr].sum())
 
+    def remove_distractors(self):
+        """Diagnostic: keep only the task's cube and zone in the scene. The other cubes and zones are moved below the
+        table (out of every camera's view; the cubes fall away, nothing collides with them). Call after reset()."""
+        c, z = self.task
+        for i, a in enumerate(self.cube_qadr):
+            if i != c:
+                self.d.qpos[a:a + 3] = [0.25 + 0.2 * i, 0.1, -0.5]
+        for i, mid in enumerate(self.zone_mocap):
+            if i != z:
+                self.d.mocap_pos[mid] = [0.25, 0.1, -0.5]
+        mujoco.mj_forward(self.m, self.d)
+        return self.obs()
+
     def cube_pos(self, i):
         a = self.cube_qadr[i]
         return self.d.qpos[a:a + 3].copy()

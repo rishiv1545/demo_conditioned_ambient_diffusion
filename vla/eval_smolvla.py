@@ -36,11 +36,14 @@ def to_batch(envs, tasks, dev, cams, size):
     return b
 
 
-def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, cams=("phone",), size=256):
+def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, cams=("phone",), size=256,
+              no_distractors=False):
     """jobs: list of (task, seed). Returns list of (success, steps) and, for indices in `record`, frame lists."""
     envs = [PickPlaceEnv(env_cfg) for _ in jobs]
     for e, (t, s) in zip(envs, jobs):
         e.reset(task=t, seed=s)
+        if no_distractors:
+            e.remove_distractors()
     policy.reset()
     tasks = [t for t, _ in jobs]
     streak = np.zeros(len(jobs), int)
@@ -81,7 +84,8 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
         c, z = tasks[i]
         p = e.cube_pos(c)
         dz = [float(np.abs(p[:2] - zc).max()) for zc in e.layout["zones"]]
-        others = [j for j in range(3) if j != c and np.linalg.norm(e.cube_pos(j)[:2] - e.layout["cubes"][j]) > 0.03]
+        others = [] if no_distractors else \
+            [j for j in range(3) if j != c and np.linalg.norm(e.cube_pos(j)[:2] - e.layout["cubes"][j]) > 0.03]
         diag.append({"target_lifted": bool(lifted[i] > 0.035), "nearest_zone": int(np.argmin(dz)),
                      "in_target_zone": bool(dz[z] <= e.cfg.zone_half), "cube_z": float(p[2]),
                      "held_at_end": bool(np.linalg.norm(e.ee_pos() - p) < e.cfg.release_dist),
@@ -104,6 +108,8 @@ def main():
     p.add_argument("--train_seeds", action="store_true",
                    help="diagnostic: use the layouts of the training demos (scripts/gen_sim_data.py seeds)")
     p.add_argument("--device", default="auto")
+    p.add_argument("--no_distractors", action="store_true",
+                   help="diagnostic: only the named cube and zone in the scene (others moved out of view)")
     a = p.parse_args()
     dev = pick_device(a.device)
     os.makedirs(a.out, exist_ok=True)
@@ -137,7 +143,8 @@ def main():
             if vid_left[sp] > 0 and j % 6 == 0:
                 rec.append(j)
                 vid_left[sp] -= 1
-        res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg, cams=cams, size=size)
+        res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg, cams=cams, size=size,
+                                no_distractors=a.no_distractors)
         for (t, s), (ok, n, g) in zip(chunk, res):
             rows.append((t, s, ok, n, g))
         for j, fr in frames.items():
@@ -155,6 +162,7 @@ def main():
                         ZONES[g["nearest_zone"]], int(g["held_at_end"]), "|".join(CUBES[j] for j in g["other_cubes_moved"])])
     per = {t: [r[2] for r in rows if r[0] == t] for t in tasks}
     summary = {"run": a.run, "step": step, "k": a.k, "n_action_steps": a.n_action_steps,
+               "no_distractors": a.no_distractors,
                "heldout_tasks": [task_name(t) for t in heldout], "eval_seconds": time.time() - t0,
                "per_task": {task_name(t): float(np.mean(v)) for t, v in per.items()}}
     for split, ts in (("seen", [t for t in tasks if t not in heldout]), ("heldout", [t for t in tasks if t in heldout])):

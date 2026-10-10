@@ -26,7 +26,7 @@ import traceback
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVE = "/content/drive/MyDrive/dcad"
 OUT = f"{DRIVE}/checkpoints/vla"
-STAGES = ["data", "cache", "train", "probe", "eval"]
+STAGES = ["data", "cache", "train", "probe", "check", "eval"]   # check: raw-vs-cached inference (vla/check_cache.py)
 
 
 def load_runs():
@@ -137,7 +137,7 @@ def init_from(src_name, run_dir, log):
     log.write(f"initialized from {src_name} step {step}\n")
 
 
-def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag=""):
+def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval_steps=None):
     run_dir = f"{OUT}/{name}"
     os.makedirs(run_dir, exist_ok=True)
     status_path = f"{run_dir}/job_status{eval_tag}.json"   # tagged eval-only jobs don't clobber the main status
@@ -175,8 +175,12 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag=""):
                     probe_args = cfg.get("probe", defaults.get("probe", ""))
                     sh(f"python vla/probe_grounding.py --run {run_dir} --step all --device cuda {probe_args} "
                        f"--log {run_dir}/probe.txt", log)
+                elif st == "check":
+                    step = (eval_steps or [latest_step(run_dir)])[-1]
+                    sh(f"python vla/check_cache.py --run {run_dir} --step {step} --n 200 --device cuda "
+                       f"--out {run_dir}/check_cache_step{step:06d}.json", log)
                 elif st == "eval" and eval_k > 0:
-                    for step in cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
+                    for step in eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
                         ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{eval_tag}"
                         if os.path.exists(f"{ed}/summary.json"):
                             continue
@@ -200,9 +204,10 @@ def main():
     p.add_argument("--job_id", default=time.strftime("%Y%m%d-%H%M%S"))
     p.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
     p.add_argument("--eval_tag", default="", help="suffix for eval dirs and the status file, e.g. _nas5")
+    p.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check (default: per run)")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
-    if any(st in stages for st in ("cache", "train", "probe", "eval")) and "data" not in stages:
+    if any(st in stages for st in ("cache", "train", "probe", "check", "eval")) and "data" not in stages:
         stages = ["data"] + stages   # every later stage needs the datasets (episodes.json) on this VM
     assert set(stages) <= set(STAGES), f"stages must be in {STAGES}"
     assert os.path.isdir("/content/drive/MyDrive"), "Drive is not mounted (run `colab drivemount -s <session>`)"
@@ -217,7 +222,8 @@ def main():
     for r in a.runs:
         job["current"] = r
         write_json(job_path, job)
-        s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag)
+        steps = [int(x) for x in a.eval_steps.split(",") if x] or None
+        s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
         job["results"][r] = {"error": s["error"], "done": s["done"]}
     job["current"] = None
     job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"

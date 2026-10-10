@@ -162,7 +162,7 @@ busy = [p.split("/")[2] for p in glob.glob("/proc/[0-9]*/cmdline") if b"colab/jo
 assert not busy, f"a job is already running on this VM (pids {{busy}}); one GPU job at a time"
 log = open("/content/job_{job_id}.out", "w")
 p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}",
-                      "--eval_args", {a.eval_args!r}, "--eval_tag", {a.eval_tag!r}],
+                      "--eval_args", {a.eval_args!r}, "--eval_tag", {a.eval_tag!r}, "--eval_steps", {a.eval_steps!r}],
                      cwd="{REMOTE}", stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
                      env={{**os.environ, **{env!r}}})
 print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
@@ -227,6 +227,7 @@ d = "{OUT}/{run}"
 fs = [f for f in ["run.json", "loss.csv", "probe.txt", "job.log"] if os.path.exists(f"{{d}}/{{f}}")]
 fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/job_status*.json")]
 fs += [os.path.relpath(p, d) for p in glob.glob(f"{{d}}/eval_*/summary.json") + glob.glob(f"{{d}}/eval_*/episodes.csv")]
+fs += [os.path.basename(p) for p in glob.glob(f"{{d}}/check_cache_*.json")]
 print("\\n".join(fs))
 """, a.session).split()
         for f in files:
@@ -291,6 +292,7 @@ def main():
     s.add_argument("--stages", default="data,cache,train,probe,eval")
     s.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
     s.add_argument("--eval_tag", default="", help="suffix for this job's eval dirs, e.g. _nas5")
+    s.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check")
     s.set_defaults(f=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job"); s.add_argument("--lines", type=int, default=12)
     s.set_defaults(f=cmd_status)
