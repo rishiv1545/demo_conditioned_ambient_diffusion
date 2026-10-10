@@ -101,3 +101,22 @@ def test_sigma_n_flows(tmp_path):
     # filters
     assert all(e["success"] for e in load_episodes(str(tmp_path), {"include_failed": False}))
     assert {e["source"] for e in load_episodes(str(tmp_path), {"sources": ["human"]})} == {"human"}
+
+
+def test_loss_t_max_per_sample():
+    """Locality: samples with t_max only see t < t_max; others keep [t_min, T)."""
+    import torch
+    from policy.diffusion import Diffusion
+    diff = Diffusion(T=100)
+    seen = []
+
+    def model(x, t, cond):
+        seen.append(t.clone())
+        return torch.zeros_like(x)
+    x0, cond = torch.zeros(512, 4, 2), None
+    t_min = torch.cat([torch.zeros(256), torch.full((256,), 70)]).long()
+    t_max = torch.cat([torch.full((256,), 25), torch.full((256,), 100)]).long()
+    diff.loss(model, x0, cond, t_min=t_min, t_max=t_max)
+    t = seen[0]
+    assert t[:256].max() < 25 and t[:256].min() >= 0
+    assert t[256:].min() >= 70 and t[256:].max() < 100

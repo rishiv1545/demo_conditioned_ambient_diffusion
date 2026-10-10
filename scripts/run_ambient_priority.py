@@ -107,6 +107,23 @@ def main():
             cell("K4_C_bal", None, clean=4, seed=k, extra=bal), cell("K4_P_bal", P, clean=4, seed=k, src="human", extra=bal),
             cell("K4_Pa75_bal", P, clean=4, t=75, seed=k, src="human", extra=bal))], a.lanes)
         return
+    if a.only == "locality":   # 0 clean blue, phone blue only, balanced; locality: red/green clean only at t < t_max
+        bal = ["--balance", "tasks"]
+        grid = [(50, 25), (50, 50), (75, 25), (75, 50), (75, 75)]   # (t_min, t_max); t_max < t_min leaves a gap
+        phase("locality, seed 0: naive / ambient t50, t75 / ambient + clean t_max", [
+            cell("K0_P_bal", P, tasks="heldout", src="human", extra=bal)]
+            + [cell(f"K0_Pa{t}_bal", P, tasks="heldout", t=t, src="human", extra=bal) for t in (50, 75)]
+            + [cell(f"K0_Pa{t}_m{m}_bal", P, tasks="heldout", t=t, src="human", extra=bal + ["--clean_t_max", str(m)])
+               for t, m in grid], a.lanes)
+        ta = best_t("K0_Pa", ["50_bal", "75_bal"])
+        tl = best_t("K0_Pa", [f"{t}_m{m}_bal" for t, m in grid])
+        print(f"best: ambient {ta}, locality {tl}", flush=True)
+        ext = lambda k: bal + (["--clean_t_max", k.split("_m")[1].split("_")[0]] if "_m" in k else [])
+        phase("locality, seeds 1-2", [j for k in (1, 2) for j in (
+            cell("K0_P_bal", P, tasks="heldout", seed=k, src="human", extra=bal),
+            cell(f"K0_Pa{ta}", P, tasks="heldout", t=int(ta[:2]), seed=k, src="human", extra=ext(ta)),
+            cell(f"K0_Pa{tl}", P, tasks="heldout", t=int(tl[:2]), seed=k, src="human", extra=ext(tl)))], a.lanes)
+        return
     os.makedirs(OUT, exist_ok=True)
     T = [25, 50, 75, 90]
     # 1) the missing comparison for the 0-clean ambient result

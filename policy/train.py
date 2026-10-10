@@ -86,6 +86,9 @@ def main():
     p.add_argument("--include_failed", type=int, default=1, help="keep failed human replays (1) or drop them (0)")
     p.add_argument("--ambient_t_min", type=int, default=0,
                    help="ambient loss: samples with sigma_n != 0 (human/synthetic) draw t from [t_min, T); 0 = off")
+    p.add_argument("--clean_t_max", type=int, default=0,
+                   help="locality: clean samples (sigma_n == 0) draw t from [0, t_max), so they teach only the "
+                        "low-noise, local motion; 0 = off")
     p.add_argument("--sim_per_task", type=int, default=20)
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
                    help="tasks: every task equally often per batch (frames uniform within a task); none: uniform")
@@ -153,7 +156,10 @@ def main():
         t_min = None
         if a.ambient_t_min > 0:                       # corrupted samples only supervise the noisy end
             t_min = torch.where(batch["sigma_n"] == 0, 0, a.ambient_t_min).long()
-        loss = diff.loss(pol, batch["action"], cond, t_min=t_min)
+        t_max = None
+        if a.clean_t_max > 0:
+            t_max = torch.where(batch["sigma_n"] == 0, a.clean_t_max, diff.T).long()
+        loss = diff.loss(pol, batch["action"], cond, t_min=t_min, t_max=t_max)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(pol.parameters(), 1.0)

@@ -22,15 +22,19 @@ class Diffusion:
         ab = self.alpha_bar[t].view(-1, *([1] * (x0.dim() - 1)))
         return ab.sqrt() * x0 + (1 - ab).sqrt() * noise
 
-    def loss(self, model, x0, cond, t_min=None, reduce=True):
-        """Epsilon-prediction MSE. t_min (optional, [B] ints): sample i draws t uniformly from [t_min_i, T-1];
-        None means standard DDPM (t_min = 0 for every sample)."""
+    def loss(self, model, x0, cond, t_min=None, reduce=True, t_max=None):
+        """Epsilon-prediction MSE. t_min / t_max (optional, [B] ints): sample i draws t uniformly from
+        [t_min_i, t_max_i); None means standard DDPM (t_min = 0, t_max = T for every sample)."""
         B = x0.shape[0]
-        if t_min is None:
+        if t_min is None and t_max is None:
             t = torch.randint(0, self.T, (B,), device=x0.device)
         else:
-            t_min = torch.as_tensor(t_min, device=x0.device).long().clamp(0, self.T - 1)
-            t = t_min + (torch.rand(B, device=x0.device) * (self.T - t_min).float()).long()
+            lo = torch.zeros(B, dtype=torch.long, device=x0.device) if t_min is None else \
+                torch.as_tensor(t_min, device=x0.device).long().clamp(0, self.T - 1)
+            hi = torch.full((B,), self.T, dtype=torch.long, device=x0.device) if t_max is None else \
+                torch.as_tensor(t_max, device=x0.device).long().clamp(1, self.T)
+            hi = torch.maximum(hi, lo + 1)
+            t = lo + (torch.rand(B, device=x0.device) * (hi - lo).float()).long()
         noise = torch.randn_like(x0)
         eps = model(self.q_sample(x0, t, noise), t, cond)
         per = ((eps - noise) ** 2).flatten(1).mean(1)
