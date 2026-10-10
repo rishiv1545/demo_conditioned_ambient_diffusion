@@ -82,6 +82,8 @@ def main():
     p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant", "cosine_from_resume"],
                    help="constant: hold lr after warmup (no decay); cosine_from_resume: hold lr until the resume step, "
                         "then cosine-decay from it to --lr_floor at --steps (e.g. finishing a constant-lr run)")
+    p.add_argument("--resume_warmup", type=int, default=0,
+                   help="cosine_from_resume: ramp the lr linearly over this many steps after the resume step")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
     p.add_argument("--save_every", type=int, default=500)
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
@@ -165,7 +167,8 @@ def main():
             if s < decay_from["step"]:
                 return min(1.0, (s + 1) / a.warmup)
             q = min(1.0, (s - decay_from["step"]) / max(1, a.steps - decay_from["step"]))
-            return (a.lr_floor + (a.lr - a.lr_floor) * 0.5 * (1 + np.cos(np.pi * q))) / a.lr
+            ramp = min(1.0, (s - decay_from["step"] + 1) / a.resume_warmup) if a.resume_warmup else 1.0
+            return ramp * (a.lr_floor + (a.lr - a.lr_floor) * 0.5 * (1 + np.cos(np.pi * q))) / a.lr
         sched = torch.optim.lr_scheduler.LambdaLR(opt, from_resume)
     else:
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_lambda(s, a.warmup, a.steps, a.lr, a.lr_floor))
@@ -183,9 +186,14 @@ def main():
     if a.lr_schedule == "cosine_from_resume":
         decay_from["step"] = start
         sched.last_epoch = start          # LambdaLR's step counter = optimizer steps so far
+        # the resumed optimizer/scheduler carry the source run's base lrs: use this run's --lr / --vlm_lr
+        sched.base_lrs = [a.lr] + ([a.vlm_lr] if a.unfreeze_vlm else [])
+        for gr, base in zip(opt.param_groups, sched.base_lrs):
+            gr["initial_lr"] = base
         for gr, base in zip(opt.param_groups, sched.base_lrs):
             gr["lr"] = base * from_resume(start)
-        print(f"lr: cosine from step {start} ({a.lr:g}) to {a.steps} ({a.lr_floor:g})", flush=True)
+        print(f"lr: cosine from step {start} ({a.lr:g}, vlm {a.vlm_lr:g}, warmup {a.resume_warmup}) to {a.steps} "
+              f"({a.lr_floor:g})", flush=True)
 
     log_path = os.path.join(run_dir, "loss.csv")
     new_log = not (a.resume and os.path.exists(log_path))
@@ -234,11 +242,15 @@ def main():
             log.flush()
             print(f"step {step:6d}  loss {m['loss']:.4f}  {sps:.2f}s/step  {(now - t0) / 60:.1f} min", flush=True)
         out_of_time = a.max_minutes and (time.time() - t0) / 60 > a.max_minutes
-        if step % a.save_every == 0 or step == a.steps or out_of_time:
+        stop = os.path.exists(os.path.join(run_dir, "STOP"))   # early stopping requested (colab/job.py)
+        if step % a.save_every == 0 or step == a.steps or out_of_time or stop:
             d = save_checkpoint(run_dir, step, policy, opt, sched)
             print("saved", d, flush=True)
         if out_of_time:
             print(f"stopping after {a.max_minutes} min (resume with --resume)")
+            break
+        if stop:
+            print(f"early stop at step {step} (STOP file)", flush=True)
             break
     print(f"done: {time.time() - t0:.0f}s")
 

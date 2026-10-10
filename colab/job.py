@@ -36,13 +36,15 @@ def load_runs():
         return json.load(f)
 
 
+ENV = {"MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl", "USE_TF": "0", "PYTHONUNBUFFERED": "1"}
+
+
 def sh(cmd, log):
     """Run a shell command from the repo root, streaming its output into the log; raise on failure."""
     log.write(f"\n$ {cmd}\n")
     log.flush()
     r = subprocess.run(cmd, shell=True, cwd=REPO, stdout=log, stderr=subprocess.STDOUT,
-                       env={**os.environ, "MUJOCO_GL": "egl", "PYOPENGL_PLATFORM": "egl", "USE_TF": "0",
-                            "PYTHONUNBUFFERED": "1"})
+                       env={**os.environ, **ENV})
     if r.returncode != 0:
         raise RuntimeError(f"exit {r.returncode}: {cmd}")
 
@@ -99,6 +101,8 @@ def ensure_cache(name, log):
     open(f"{lc}/LOCAL_COMPLETE", "w").close()
 
 
+# early stopping on the blue probe (runs.json "early_stop": overrides): probe every saved checkpoint (save_every)
+EARLY_STOP = {"cubes": "blue", "patience": 1000, "acc_tol": 2 / 32, "dist_tol_cm": 0.2, "max_nearest_cm": 3.5}
 CLEAN_BLUE = "sim_blue_v2c_24"   # 24 clean sim demos per blue task; runs use the first clean_blue_per_task of each
 PHONE = "phone_v2"
 
@@ -144,6 +148,82 @@ def plateau_step(run_dir, after, tol=1 / 16):
     best = max(acc.values())
     step = min(s for s, v in acc.items() if v >= best - tol)
     write_json(f"{run_dir}/plateau.json", {"step": step, "blue_acc": acc, "after": after, "tol": tol})
+    return step
+
+
+def probe_results(path):
+    """{step: (accuracy over the queried cubes, median distance to the nearest cube in cm)} from a probe log."""
+    out = {}
+    if os.path.exists(path):
+        for m in re.finditer(r"^step\s+(\d+): grounding accuracy ([\d.]+).*?to the nearest cube of any color ([\d.]+) cm",
+                             open(path).read(), re.M):
+            out[int(m.group(1))] = (float(m.group(2)), float(m.group(3)))
+    return out
+
+
+def plateaued(res, init_step, es):
+    """True when neither the blue probe accuracy (by acc_tol) nor the nearest-cube distance (by dist_tol_cm) has
+    improved on its running best for es["patience"] steps; the init checkpoint is the starting point."""
+    steps = sorted(s for s in res if s >= init_step)
+    if not steps or steps[-1] - init_step < es["patience"]:
+        return False
+    best_a, best_d, last = res[steps[0]][0], res[steps[0]][1], steps[0]
+    for st in steps[1:]:
+        acc, d = res[st]
+        if acc >= best_a + es["acc_tol"]:
+            best_a, last = acc, st
+        if d <= best_d - es["dist_tol_cm"]:
+            best_d, last = d, st
+    return steps[-1] - last >= es["patience"]
+
+
+def select_checkpoint(res, init_step, es):
+    """Best blue probe accuracy among checkpoints after init whose nearest-cube distance is within max_nearest_cm
+    (ties: smaller distance, then earlier); if none qualifies, the one with the smallest distance."""
+    cand = {s: v for s, v in res.items() if s > init_step}
+    ok = {s: v for s, v in cand.items() if v[1] <= es["max_nearest_cm"]}
+    if ok:
+        return min(ok, key=lambda s: (-ok[s][0], ok[s][1], s)), True
+    return min(cand, key=lambda s: (cand[s][1], s)), False
+
+
+def train_early_stop(run_dir, train_cmd, init_step, es, log):
+    """Train while a watcher probes every saved checkpoint (blue only); write STOP once both probe metrics have
+    plateaued (training saves and exits), pick the checkpoint, and delete the other checkpoints (588 MB each)."""
+    plog, stop = f"{run_dir}/probe_es.txt", f"{run_dir}/STOP"
+    if os.path.exists(stop):
+        os.remove(stop)
+    env = {**os.environ, **ENV}
+    log.write(f"\n$ {train_cmd}\n")
+    log.flush()
+    tr = subprocess.Popen(train_cmd, shell=True, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, env=env)
+    pcmd = (f"python vla/probe_grounding.py --run {run_dir} --watch --cubes {es['cubes']} --layouts 32 "
+            f"--device cuda --log {plog}")
+    pr = subprocess.Popen(pcmd, shell=True, cwd=REPO, stdout=open(f"{run_dir}/probe_es.out", "a"),
+                          stderr=subprocess.STDOUT, env=env)
+    while tr.poll() is None:
+        time.sleep(20)
+        if not os.path.exists(stop) and plateaued(probe_results(plog), init_step, es):
+            open(stop, "w").close()
+            log.write(f"plateau: STOP written at probed step {max(probe_results(plog))}\n")
+    if tr.returncode != 0:
+        pr.kill()
+        raise RuntimeError(f"exit {tr.returncode}: {train_cmd}")
+    last = latest_step(run_dir)
+    while last not in probe_results(plog) and pr.poll() is None:   # let the watcher catch up
+        if os.path.exists(stop) and plateaued(probe_results(plog), init_step, es):
+            break      # already plateaued: the unprobed tail can't win on the plateau rule's terms
+        time.sleep(20)
+    pr.kill()
+    res = probe_results(plog)
+    step, passed = select_checkpoint(res, init_step, es)
+    keep = {step, last}
+    for st, d in [(int(os.path.basename(d)[5:]), d) for d in glob.glob(f"{run_dir}/step_*")]:
+        if st not in keep:
+            shutil.rmtree(d)
+    write_json(f"{run_dir}/selected.json", {"step": step, "passed_distance_cut": passed, "last": last,
+                                            "probe": {str(k): v for k, v in sorted(res.items())}, "rule": es})
+    log.write(f"selected step {step} (distance cut passed: {passed}); kept {sorted(keep)}\n")
     return step
 
 
@@ -197,11 +277,21 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         init_from(cfg["init_from"], run_dir, log)
                     if cfg.get("init_from") and "--stats_from" not in train_args:   # keep the source's normalization
                         train_args += f" --stats_from {OUT}/{cfg['init_from']}"
-                    sh(f"python vla/train_smolvla.py --run_name {name} --data {' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} "
-                       f"{train_args}", log)
+                    cmd = (f"python vla/train_smolvla.py --run_name {name} --data "
+                           f"{' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} {train_args}")
+                    if cfg.get("early_stop"):
+                        es = {**EARLY_STOP, **cfg["early_stop"]}
+                        init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
+                        if not os.path.exists(f"{run_dir}/selected.json"):
+                            train_early_stop(run_dir, cmd, init_step, es, log)
+                    else:
+                        sh(cmd, log)
                 elif st == "probe":
                     probe_args = cfg.get("probe", defaults.get("probe", ""))
-                    sh(f"python vla/probe_grounding.py --run {run_dir} --step {cfg.get('probe_step', 'all')} --device cuda {probe_args} "
+                    pstep = cfg.get("probe_step", "all")
+                    if pstep == "selected":   # full probe (all cubes) of the early-stopping checkpoint
+                        pstep = json.load(open(f"{run_dir}/selected.json"))["step"]
+                    sh(f"python vla/probe_grounding.py --run {run_dir} --step {pstep} --device cuda {probe_args} "
                        f"--log {run_dir}/probe.txt", log)
                 elif st == "check":
                     step = (eval_steps or [latest_step(run_dir)])[-1]
@@ -212,6 +302,8 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     sh(f"python vla/grasp_diag.py --run {run_dir} --step {step} --device cuda "
                        f"--out {run_dir}/grasp_diag_step{step:06d}.json", log)
                 elif st == "eval" and eval_k > 0:
+                    if cfg.get("eval_steps") == "selected" and not eval_steps:   # early-stopping checkpoint
+                        eval_steps = [json.load(open(f"{run_dir}/selected.json"))["step"]]
                     if cfg.get("eval_steps") == "plateau" and not eval_steps:   # the blue probe's plateau checkpoint
                         init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
                         eval_steps = [plateau_step(run_dir, init_step)]

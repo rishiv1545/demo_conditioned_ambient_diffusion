@@ -38,7 +38,9 @@ def main():
                    help="keep polling the run dir and probe each new checkpoint as training saves it")
     p.add_argument("--until", type=int, default=None, help="with --watch: exit after probing this step")
     p.add_argument("--log", default=None, help="append each result line to this file")
+    p.add_argument("--cubes", default="red,green,blue", help="named cubes to query (e.g. 'blue': 3x faster)")
     a = p.parse_args()
+    a.cube_ids = [CUBES.index(c) for c in a.cubes.split(",")]
     dev = pick_device(a.device)
     while a.watch and not os.path.exists(os.path.join(a.run, "run.json")):
         time.sleep(30)                         # training hasn't started writing the run yet
@@ -83,7 +85,7 @@ def probe_one(a, policy, pre, post, env, cams, size, st, ck_dir):
                for c, im in env.images(size, cams).items()}
         state = torch.from_numpy(env.state())[None]
         cubes = env.layout["cubes"]
-        for c in range(3):
+        for c in a.cube_ids:
             pts = []
             for _ in range(a.samples):
                 b = {**ims, "observation.state": state, "task": [instruction((c, 0))]}
@@ -106,7 +108,7 @@ def probe_one(a, policy, pre, post, env, cams, size, st, ck_dir):
     # per named cube: blue is never a target in the sim demos, so its row is the held-out grounding check
     line += "\n" + "\n".join(f"    {CUBES[c]:6s} accuracy {hits[named == c].mean():.2f}, median distance "
                                f"{np.median(dists[named == c]) * 100:.1f} cm  (n={int((named == c).sum())})"
-                               for c in range(3))
+                               for c in a.cube_ids)
     print(line, flush=True)
     if a.log:
         with open(a.log, "a") as f:
