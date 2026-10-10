@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla.common import (base_config, build_policy, frames_of_episodes, list_checkpoints, load_trainable, open_datasets,
-                        parse_data_spec, pick_device, selected_episodes,  # noqa: E402
+                        load_run_config, parse_data_spec, pick_device, selected_episodes,  # noqa: E402
                         save_checkpoint, save_run_config)
 
 import numpy as np  # noqa: E402
@@ -66,6 +66,8 @@ def main():
     p.add_argument("--features", default="cache", choices=["cache", "raw"],
                    help="cache: train from precomputed frozen vision features (built on first use); raw: images")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--stats_from", default=None,
+                   help="run dir whose normalization stats to reuse (continuing a run on a different data mix)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max_minutes", type=float, default=0, help="stop (after saving) after this long; 0 = no limit")
     a = p.parse_args()
@@ -79,6 +81,9 @@ def main():
     specs = [parse_data_spec(d) for d in a.data]      # "root?per_task=4&cube=blue" selects episodes of a dataset
     roots = [r for r, _ in specs]
     dss, stats = open_datasets(roots, chunk)          # normalization stats from the full datasets
+    if a.stats_from:   # keep the continued model's input/output normalization
+        stats = load_run_config(a.stats_from)["stats"]
+        print(f"normalization stats from {a.stats_from}", flush=True)
     features = dss[0].meta.features
     policy, pre, _, cfg = build_policy(features, stats, dev, dtype=a.dtype, unfreeze_vlm=bool(a.unfreeze_vlm))
     img_keys = list(cfg.image_features)

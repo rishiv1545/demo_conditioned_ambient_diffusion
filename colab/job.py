@@ -169,6 +169,8 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                 elif st == "train":
                     if cfg.get("init_from") and not latest_step(run_dir):
                         init_from(cfg["init_from"], run_dir, log)
+                    if cfg.get("init_from") and "--stats_from" not in train_args:   # keep the source's normalization
+                        train_args += f" --stats_from {OUT}/{cfg['init_from']}"
                     sh(f"python vla/train_smolvla.py --run_name {name} --data {' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} "
                        f"{train_args}", log)
                 elif st == "probe":
@@ -180,12 +182,15 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     sh(f"python vla/check_cache.py --run {run_dir} --step {step} --n 200 --device cuda "
                        f"--out {run_dir}/check_cache_step{step:06d}.json", log)
                 elif st == "eval" and eval_k > 0:
+                    # variants: [[tag, args], ...] from runs.json (e.g. normal and zero-noise sampling), else the CLI's
+                    variants = cfg.get("eval_variants") or [[eval_tag, eval_args]]
                     for step in eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
-                        ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{eval_tag}"
-                        if os.path.exists(f"{ed}/summary.json"):
-                            continue
-                        sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {eval_k} "
-                           f"--out {ed} --device cuda {eval_args}", log)
+                        for tag, vargs in variants:
+                            ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{tag}"
+                            if os.path.exists(f"{ed}/summary.json"):
+                                continue
+                            sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {eval_k} "
+                               f"--out {ed} --device cuda {cfg.get('eval_args', '')} {vargs}", log)
                 status["timings_s"][st] = round(time.time() - t0)
                 status["done"].append(st)
             status["stage"] = "finished"

@@ -38,11 +38,13 @@ def features(size=IMAGE_SIZE, cameras=IMAGE_CAMERAS):
 
 def replay_render(env, ep, size=IMAGE_SIZE):
     """Re-simulate an episode from its layout + actions. Returns (images {cam: [T,H,W,3]}, states [T,4], max obs err)."""
-    ee_start = ep["raw_traj"][0] if ep["source"] == "human" and "raw_traj" in ep else None
+    ee_start = ep["raw_traj"][0] if ep["source"] == "human" and "raw_traj" in ep else ep.get("ee_start")
     obs = env.reset(task=ep["task"], layout=layout_from_array(ep["layout"]), ee_start=ee_start)
     imgs = {c: [] for c in IMAGE_CAMERAS}
     states, err = [], 0.0
-    for t, a in enumerate(ep["action"]):
+    # recovery demos (scripts/gen_recovery_data.py): replay the executed (perturbed) actions; the labels written to
+    # the dataset stay ep["action"] (the expert's nominal, corrective targets)
+    for t, a in enumerate(ep.get("exec_action", ep["action"])):
         err = max(err, float(np.abs(obs - ep["obs"][t]).max()))
         for c, im in env.images(size).items():
             imgs[c].append(im)

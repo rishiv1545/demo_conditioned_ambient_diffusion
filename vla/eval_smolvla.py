@@ -37,7 +37,7 @@ def to_batch(envs, tasks, dev, cams, size):
 
 
 def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, cams=("phone",), size=256,
-              no_distractors=False):
+              no_distractors=False, noise_scale=1.0):
     """jobs: list of (task, seed). Returns list of (success, steps) and, for indices in `record`, frame lists."""
     envs = [PickPlaceEnv(env_cfg) for _ in jobs]
     for e, (t, s) in zip(envs, jobs):
@@ -63,8 +63,12 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
         # eval time, so render only when a new chunk will be planned. Same actions as rendering every step.
         if obs is None or len(policy._queues["action"]) == 0:
             obs = pre(to_batch(envs, tasks, dev, cams, size))
+        noise = None   # default flow-matching sampling (unit Gaussian start); noise_scale 0 = deterministic
+        if noise_scale != 1.0 and len(policy._queues["action"]) == 0:
+            c = policy.config
+            noise = noise_scale * torch.randn(len(envs), c.chunk_size, c.max_action_dim, device=dev)
         with torch.no_grad():
-            act = post(policy.select_action(obs)).cpu().numpy()
+            act = post(policy.select_action(obs, noise=noise)).cpu().numpy()
         for i, e in enumerate(envs):
             if done[i]:
                 continue                     # finished envs are frozen (their actions are ignored)
@@ -94,6 +98,19 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
     return [(bool(d), int(n), g) for d, n, g in zip(done, steps, diag)], frames
 
 
+def outcome(task, success, g):
+    """One outcome class per episode (mutually exclusive, checked in this order)."""
+    if success:
+        return "success"
+    if not g["target_lifted"]:
+        return "wrong_cube" if g["other_cubes_moved"] else "missed_grasp"
+    if g["in_target_zone"]:
+        return "in_zone_not_released"
+    if g["held_at_end"]:
+        return "holding_at_timeout"
+    return "near_target_or_dropped" if g["nearest_zone"] == task[1] else "wrong_zone"
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--run", required=True, help="run dir with run.json and step_* checkpoints")
@@ -108,6 +125,8 @@ def main():
     p.add_argument("--train_seeds", action="store_true",
                    help="diagnostic: use the layouts of the training demos (scripts/gen_sim_data.py seeds)")
     p.add_argument("--device", default="auto")
+    p.add_argument("--noise_scale", type=float, default=1.0,
+                   help="scale of the flow-matching start noise at inference (0 = deterministic, 1 = default)")
     p.add_argument("--no_distractors", action="store_true",
                    help="diagnostic: only the named cube and zone in the scene (others moved out of view)")
     a = p.parse_args()
@@ -144,7 +163,7 @@ def main():
                 rec.append(j)
                 vid_left[sp] -= 1
         res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg, cams=cams, size=size,
-                                no_distractors=a.no_distractors)
+                                no_distractors=a.no_distractors, noise_scale=a.noise_scale)
         for (t, s), (ok, n, g) in zip(chunk, res):
             rows.append((t, s, ok, n, g))
         for j, fr in frames.items():
@@ -162,7 +181,7 @@ def main():
                         ZONES[g["nearest_zone"]], int(g["held_at_end"]), "|".join(CUBES[j] for j in g["other_cubes_moved"])])
     per = {t: [r[2] for r in rows if r[0] == t] for t in tasks}
     summary = {"run": a.run, "step": step, "k": a.k, "n_action_steps": a.n_action_steps,
-               "no_distractors": a.no_distractors,
+               "no_distractors": a.no_distractors, "noise_scale": a.noise_scale,
                "heldout_tasks": [task_name(t) for t in heldout], "eval_seconds": time.time() - t0,
                "per_task": {task_name(t): float(np.mean(v)) for t, v in per.items()}}
     for split, ts in (("seen", [t for t in tasks if t not in heldout]), ("heldout", [t for t in tasks if t in heldout])):
@@ -173,6 +192,16 @@ def main():
             print(f"{split:8s} {m:.3f}  95% CI [{lo:.3f}, {hi:.3f}]  (n={len(v)})")
     for t in tasks:
         print(f"  {task_name(t):14s} {np.mean(per[t]):.2f}")
+    summary["outcomes"] = {}
+    for split, ts in (("seen", [t for t in tasks if t not in heldout]), ("heldout", [t for t in tasks if t in heldout])):
+        rs = [r for r in rows if r[0] in ts]
+        if rs:
+            c = {}
+            for r in rs:
+                k = outcome(r[0], r[2], r[4])
+                c[k] = c.get(k, 0) + 1
+            summary["outcomes"][split] = {k: v / len(rs) for k, v in sorted(c.items(), key=lambda kv: -kv[1])}
+            print(f"{split} outcomes:", {k: f"{v / len(rs):.1%}" for k, v in c.items()})
     # failure analysis
     fails = [r for r in rows if not r[2]]
     if fails:
