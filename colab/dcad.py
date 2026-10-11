@@ -77,7 +77,12 @@ def session_exists(session):
     out = r.stdout
     if r.returncode != 0 or "Traceback" in r.stderr or "authorize" in (r.stdout + r.stderr):
         sys.exit(f"could not list Colab sessions (network or login problem); not creating one:\n{r.stderr[-500:]}")
-    return any(line.startswith(f"[{session}] ") for line in out.splitlines())   # "[dcad] gpu-a100-... | Hardware: ..."
+    lines = out.splitlines()
+    if not any(ln.startswith(f"[{session}] ") for ln in lines) and any(ln.startswith("[?] ") for ln in lines):
+        # a `colab new` that never got its name (seen 2026-10-11): creating another would bill two VMs
+        sys.exit("an unnamed Colab session is running (`colab sessions` shows [?]); stop it in the Colab web UI "
+                 "(Runtime > Manage sessions) before creating a new one")
+    return any(ln.startswith(f"[{session}] ") for ln in lines)   # "[dcad] gpu-a100-... | Hardware: ..."
 
 
 def cmd_up(a):
