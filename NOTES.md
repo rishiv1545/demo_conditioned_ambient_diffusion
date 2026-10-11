@@ -357,3 +357,11 @@ Closed loop: 60 seen eval episodes (10/task) rolled out to the first gripper clo
 
 - **T1R_sim_100** (recovery+decay checkpoint, 100 clean sim demos, T1 recipe, 4.9 units): 25% at the midpoint, 15% at the end (20 episodes, zero-noise; missed grasp 65–70%, wrong cube 0–5%). Same range as from smolvla_base (T1_sim_80 15%/15%, T1_sim_160 35%/40%): the red/green checkpoint gives no clear head start at k = 20; only wrong-cube failures are lower (0–5% vs 15%).
 - Prepared: `scripts/score_phone.py` (quality score, clean/noisy split, per-episode t_min, quality tag; `quality/phone_bo.json`), `--episode_info/--ambient_per_episode/--quality_tag`, `vla/self_improve.py`, configs PB_naive / PB_amb / PB_qual (from the red/green checkpoint).
+
+## J_sim40 (2026-10-11): joint training from smolvla_base, 40 clean sim blue-orange at 30% per batch
+Red/green clean + recovery + sim_bo_320?per_task=40 (mix 0.44/0.26/0.30), unfrozen VLM, constant LR.
+Chance-stop fired at 15k (blue probe 0.22 <= 0.4); ~9.5 units (26.83 -> 17.37).
+Probe blue acc by step (2.5k..15k): 0.31 0.22 0.12 0.19 0.31 0.22 (red 0.34 -> 0.91, green 0.31 -> 0.69).
+Eval 15k, zero noise: blue-orange 2% (k50; missed grasp 60%, wrong cube 38%); red/green 18% (k10/task).
+Read: 40 clean demos of the held-out colour at 30% of batches do not ground "blue" even with clean data; red/green
+grounding forms by 12.5-15k, blue stays at chance. Phone-data joint runs (J_naive etc.) not launched.
