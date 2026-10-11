@@ -352,3 +352,8 @@ Closed loop: 60 seen eval episodes (10/task) rolled out to the first gripper clo
 - Resumed after the 23:27 VM drop (P_only restarted from step 2500); finished 07:17, VM stopped; 40.7 units (75.65 → 35.00).
 - **P_only** (38 successful blue phone replays, 20k steps): blue 1–3% at 5k/10k/17.5k (best probe)/20k. **S_only** (38 clean sim blue episodes, same per-task counts): 0–1%. Both fail; mostly missed grasps (65–77%), wrong cube 13–18%. Phone vs sim quality can't be told apart at this data size.
 - **Branch a** (single task blue-orange, clean sim, nested sets of `sim_bo_320`, 15k steps, zero-noise, 20 episodes): 80 demos 15% / 15% (midpoint / end), 160 demos 35% / 40%, **320 demos 20% / 80%**. Threshold for ≥50%: **between 160 and 320 demos** for one task from smolvla_base. The 320 run only gets there at the end of the cosine decay (20% at the midpoint).
+
+### 2026-10-11: single task blue-orange from the red/green checkpoint
+
+- **T1R_sim_100** (recovery+decay checkpoint, 100 clean sim demos, T1 recipe, 4.9 units): 25% at the midpoint, 15% at the end (20 episodes, zero-noise; missed grasp 65–70%, wrong cube 0–5%). Same range as from smolvla_base (T1_sim_80 15%/15%, T1_sim_160 35%/40%): the red/green checkpoint gives no clear head start at k = 20; only wrong-cube failures are lower (0–5% vs 15%).
+- Prepared: `scripts/score_phone.py` (quality score, clean/noisy split, per-episode t_min, quality tag; `quality/phone_bo.json`), `--episode_info/--ambient_per_episode/--quality_tag`, `vla/self_improve.py`, configs PB_naive / PB_amb / PB_qual (from the red/green checkpoint).
