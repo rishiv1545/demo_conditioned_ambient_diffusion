@@ -288,14 +288,14 @@
         "phone_v2?cube=blue&success=1",
         "phone_v3_blue?success=1"
       ],
-      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 30000 --lr_schedule cosine --warmup 1000",
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 20000 --lr_schedule cosine --warmup 1000",
       "probe": "--layouts 32 --cubes blue",
       "probe_step": "all",
       "eval_k": 50,
       "eval_steps": [
+        5000,
         10000,
         20000,
-        30000,
         "best_probe"
       ],
       "eval_variants": [
@@ -304,20 +304,20 @@
           "--tasks heldout --noise_scale 0"
         ]
       ],
-      "_note": "smolvla_base post-trained on the 38 successful blue phone replays only (sessions 3+4: 11/13/14 per blue task), naive loss, no sim/recovery data; cosine 1e-4 -> 2.5e-6 over 30k (VLM 1e-5), checkpoints every 2.5k; blue probe at every checkpoint; zero-noise blue eval (50/task) at 10k/20k/30k + the best probe step"
+      "_note": "smolvla_base post-trained on the 38 successful blue phone replays only (sessions 3+4: 11/13/14 per blue task), naive loss, no sim/recovery data; cosine 1e-4 -> 2.5e-6 over 20k (VLM 1e-5), checkpoints every 2.5k; blue probe at every checkpoint; zero-noise blue eval (50/task) at 5k/10k/20k + the best probe step"
     },
     "S_only": {
       "data": [
         "sim_blue_v2c_24?per_task=blue-orange:11,blue-purple:13,blue-yellow:14"
       ],
-      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 30000 --lr_schedule cosine --warmup 1000",
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 20000 --lr_schedule cosine --warmup 1000",
       "probe": "--layouts 32 --cubes blue",
       "probe_step": "all",
       "eval_k": 50,
       "eval_steps": [
+        5000,
         10000,
         20000,
-        30000,
         "best_probe"
       ],
       "eval_variants": [
