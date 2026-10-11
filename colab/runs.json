@@ -581,6 +581,66 @@
         ]
       ],
       "_note": "single task blue-orange from the red/green recovery+decay checkpoint (step 33k) on 100 clean sim demos (first 100 of sim_bo_320); T1 recipe: 500-step warmup, cosine 1e-4 -> 2.5e-6 (VLM 1e-5) over 15k steps; zero-noise eval (20 episodes) at the midpoint and the end. Compare T1_sim_80/160 from smolvla_base"
+    },
+    "PB_naive": {
+      "train": "--unfreeze_vlm 1 --lr 1e-4 --vlm_lr 1e-5 --lr_floor 2.5e-6 --lr_schedule cosine_from_resume --resume_warmup 500 --steps 48000 --save_from 33000 --save_every 7500",
+      "init_from": "V0_30k_rec_decay3k",
+      "eval_k": 20,
+      "eval_steps": [
+        40500,
+        48000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "data": [
+        "phone_v2?per_task=blue-orange:99",
+        "phone_v3_blue?per_task=blue-orange:99"
+      ],
+      "_note": "phone-only single task blue-orange from the recovery+decay checkpoint, T1R recipe; all blue-orange phone replays (incl. failed), naive loss. Add the new recording session's dataset to data and rescore (scripts/score_phone.py) before running."
+    },
+    "PB_amb": {
+      "train": "--unfreeze_vlm 1 --lr 1e-4 --vlm_lr 1e-5 --lr_floor 2.5e-6 --lr_schedule cosine_from_resume --resume_warmup 500 --steps 48000 --save_from 33000 --save_every 7500 --episode_info quality/phone_bo.json --ambient_per_episode 1",
+      "init_from": "V0_30k_rec_decay3k",
+      "eval_k": 20,
+      "eval_steps": [
+        40500,
+        48000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "data": [
+        "phone_v2?per_task=blue-orange:99",
+        "phone_v3_blue?per_task=blue-orange:99"
+      ],
+      "_note": "phone-only single task blue-orange from the recovery+decay checkpoint, T1R recipe; score-based split: top 30% clean (full supervision), the rest ambient with per-episode t_min 0.5-0.9 by score. Add the new recording session's dataset to data and rescore (scripts/score_phone.py) before running."
+    },
+    "PB_qual": {
+      "train": "--unfreeze_vlm 1 --lr 1e-4 --vlm_lr 1e-5 --lr_floor 2.5e-6 --lr_schedule cosine_from_resume --resume_warmup 500 --steps 48000 --save_from 33000 --save_every 7500 --episode_info quality/phone_bo.json --quality_tag 1",
+      "init_from": "V0_30k_rec_decay3k",
+      "eval_k": 20,
+      "eval_steps": [
+        40500,
+        48000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "data": [
+        "phone_v2?per_task=blue-orange:99",
+        "phone_v3_blue?per_task=blue-orange:99"
+      ],
+      "_note": "phone-only single task blue-orange from the recovery+decay checkpoint, T1R recipe; quality-tagged: score -> tag appended to the state, inference requests +1. Add the new recording session's dataset to data and rescore (scripts/score_phone.py) before running."
     }
   }
 }
