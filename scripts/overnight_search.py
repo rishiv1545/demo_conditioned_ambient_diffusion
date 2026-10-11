@@ -257,7 +257,14 @@ def main():
 
     # Step 1 (already launched): P_only, S_only
     if not all(st["runs"].get(n, {}).get("evals") for n in ("P_only", "S_only")):
-        t0 = time.time()
+        rc, out = run(DCAD + ["status"], timeout=300)
+        if "state running" not in out:          # resuming after a VM drop: relaunch (training resumes from Drive)
+            if not session_alive():
+                vm_dropped(st, "before relaunching P_only/S_only")
+            rc, out = run(DCAD + ["run", "P_only", "S_only", "--no_sync"], timeout=900)
+            print(out[-1500:], flush=True)
+            if "started job" not in out:
+                vm_dropped(st, "relaunching P_only/S_only")
         wait_job(st, "P_only/S_only")
         for n in ("P_only", "S_only"):
             st["runs"][n] = {"evals": summaries(n), "hours": None, "units": None}

@@ -339,3 +339,10 @@ Closed loop: 60 seen eval episodes (10/task) rolled out to the first gripper clo
 - `V0_2cam_unfrozen_30k`: probe plateaus after 15k (red/green 0.8–0.94, blue 0.03–0.12, nearest cube ≈ 3.6 cm); eval of step 30k pending in `outputs/colab/V0_2cam_unfrozen_30k/`. Then `C_blue4` and `Ceil_blue24` run on Colab (chained, VM stops after).
 - Small-policy sweep running on the Mac (`scripts/run_ambient_sweep.sh`, ~9 h, `outputs/ambient_sweep/run.log`); summary: `python scripts/summarize_ambient_sweep.py`, then set `defaults.ambient_t_min` in `colab/runs.json`.
 - Phone: user to click the 31 undetected clips (`python scripts/click_layout.py data/raw_phone/3`), then `PY=~/miniforge3/envs/dcad/bin/python scripts/phone_to_colab.sh data/raw_phone/3` → `CN_blue4`, then (after t_min) `CNamb_blue4`, `Namb`.
+
+### Overnight run stopped: Colab VM dropped (2026-10-10 23:27)
+
+- While: uploading sim_bo_320. No retry (a new VM needs Drive mounted by hand).
+- Completed runs: none; state in `outputs/overnight/state.json`, partial report in `outputs/overnight/report.md`.
+- P_only had trained about 45 min (checkpoints every 2.5k on Drive; `--resume` continues from the last one that reached Drive). `sim_bo_320` is exported locally (320 episodes, 33,275 frames) but not yet on Drive; the orchestrator uploads it first.
+- To resume: `python colab/dcad.py up`, mount Drive, then `caffeinate -i python scripts/overnight_search.py > outputs/overnight/log.txt 2>&1` (relaunches P_only/S_only if no job is running; finished runs are skipped).
