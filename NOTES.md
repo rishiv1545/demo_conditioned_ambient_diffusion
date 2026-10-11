@@ -346,3 +346,9 @@ Closed loop: 60 seen eval episodes (10/task) rolled out to the first gripper clo
 - Completed runs: none; state in `outputs/overnight/state.json`, partial report in `outputs/overnight/report.md`.
 - P_only had trained about 45 min (checkpoints every 2.5k on Drive; `--resume` continues from the last one that reached Drive). `sim_bo_320` is exported locally (320 episodes, 33,275 frames) but not yet on Drive; the orchestrator uploads it first.
 - To resume: `python colab/dcad.py up`, mount Drive, then `caffeinate -i python scripts/overnight_search.py > outputs/overnight/log.txt 2>&1` (relaunches P_only/S_only if no job is running; finished runs are skipped).
+
+### Overnight 2026-10-10/11: from smolvla_base, blue only (report: `outputs/overnight/report.md`)
+
+- Resumed after the 23:27 VM drop (P_only restarted from step 2500); finished 07:17, VM stopped; 40.7 units (75.65 → 35.00).
+- **P_only** (38 successful blue phone replays, 20k steps): blue 1–3% at 5k/10k/17.5k (best probe)/20k. **S_only** (38 clean sim blue episodes, same per-task counts): 0–1%. Both fail; mostly missed grasps (65–77%), wrong cube 13–18%. Phone vs sim quality can't be told apart at this data size.
+- **Branch a** (single task blue-orange, clean sim, nested sets of `sim_bo_320`, 15k steps, zero-noise, 20 episodes): 80 demos 15% / 15% (midpoint / end), 160 demos 35% / 40%, **320 demos 20% / 80%**. Threshold for ≥50%: **between 160 and 320 demos** for one task from smolvla_base. The 320 run only gets there at the end of the cosine decay (20% at the midpoint).
