@@ -1,0 +1,17 @@
+dataset,episode_index,file,success,score,clean,t_min,quality,grasp_cm,dwell_err_s,lift_s,jerk,speed,moved_cm
+phone_v3_blue,2,data/human/4/blue_to_orange_03.npz,True,0.876,True,0.0,0.752,0.854,0.4,1.2,92.05,0.219,0.0
+phone_v3_blue,4,data/human/4/blue_to_orange_05.npz,True,0.855,True,0.0,0.709,0.74,0.4,1.1,130.795,0.268,0.0
+phone_v2,3,data/human/3/blue_to_orange_04.npz,True,0.84,True,0.0,0.68,0.654,0.4,1.2,102.507,0.356,0.151
+phone_v3_blue,7,data/human/4/blue_to_orange_08.npz,True,0.838,True,0.0,0.675,0.631,0.4,1.2,106.461,0.352,0.027
+phone_v2,0,data/human/3/blue_to_orange_01.npz,True,0.834,True,0.0,0.668,0.125,0.4,1.7,104.793,0.265,0.0
+phone_v2,5,data/human/3/blue_to_orange_06.npz,True,0.817,False,0.5,0.634,0.476,0.4,2.8,89.264,0.279,0.0
+phone_v3_blue,5,data/human/4/blue_to_orange_06.npz,True,0.767,False,0.54,0.534,0.594,0.4,1.2,103.369,0.269,5.199
+phone_v2,1,data/human/3/blue_to_orange_02.npz,True,0.735,False,0.58,0.469,1.257,0.4,1.2,89.039,0.341,7.708
+phone_v2,2,data/human/3/blue_to_orange_03.npz,True,0.731,False,0.62,0.461,0.578,0.5,1.8,84.339,0.294,4.512
+phone_v3_blue,1,data/human/4/blue_to_orange_02.npz,True,0.671,False,0.66,0.341,1.381,0.4,1.4,105.751,0.453,5.318
+phone_v2,4,data/human/3/blue_to_orange_05.npz,True,0.617,False,0.7,0.235,3.394,0.4,1.1,135.282,0.441,4.774
+phone_v3_blue,6,data/human/4/blue_to_orange_07.npz,False,0.493,False,0.74,-0.014,0.507,0.3,1.0,100.114,0.324,0.0
+phone_v3_blue,0,data/human/4/blue_to_orange_01.npz,False,0.45,False,0.78,-0.1,1.124,0.3,1.4,113.212,0.288,0.0
+phone_v2,7,data/human/3/blue_to_orange_08.npz,False,0.44,False,0.82,-0.12,1.006,0.4,1.5,98.73,0.298,0.0
+phone_v3_blue,3,data/human/4/blue_to_orange_04.npz,False,0.422,False,0.86,-0.156,0.76,0.4,1.4,96.032,0.395,0.0
+phone_v2,6,data/human/3/blue_to_orange_07.npz,False,0.29,False,0.9,-0.42,2.298,0.4,1.3,99.902,0.268,5.147

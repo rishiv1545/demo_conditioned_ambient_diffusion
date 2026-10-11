@@ -340,6 +340,13 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     step = (eval_steps or [latest_step(run_dir)])[-1]
                     sh(f"python vla/grasp_diag.py --run {run_dir} --step {step} --device cuda "
                        f"--out {run_dir}/grasp_diag_step{step:06d}.json", log)
+                elif st == "self_improve":   # rollouts -> successes as clean data -> retrain (cfg["self_improve"])
+                    si = cfg["self_improve"]
+                    sh(f"python vla/self_improve.py --run_dir {run_dir} --data "
+                       f"{' '.join(shlex.quote(sp) for _, sp in specs)} --task {si.get('task', 'blue-orange')} "
+                       f"--rounds {si.get('rounds', 3)} --n {si.get('n', 100)} "
+                       f"--steps_per_round {si.get('steps_per_round', 3000)} --lr {si.get('lr', 5e-5)} "
+                       f"--train_args {shlex.quote(si.get('train_args', '--unfreeze_vlm 1 --vlm_lr 1e-5'))}", log)
                 elif st == "eval" and eval_k > 0:
                     if cfg.get("eval_steps") == "selected" and not eval_steps:   # early-stopping checkpoint
                         eval_steps = [json.load(open(f"{run_dir}/selected.json"))["step"]]

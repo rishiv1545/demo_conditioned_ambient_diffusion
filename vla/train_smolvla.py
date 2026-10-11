@@ -11,6 +11,7 @@ Checkpoints (trainable params + optimizer state) go to <out>/<run_name>/step_XXX
 """
 import argparse
 import csv
+import json
 import os
 import sys
 import time
@@ -24,7 +25,7 @@ from vla.common import (base_config, build_policy, frames_of_episodes, list_chec
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from vla.ambient import ambient_time  # noqa: E402
+from vla.ambient import ambient_time, ambient_time_per_sample  # noqa: E402
 from vla.feature_cache import PREFIX, CachedChunkDataset, build_cache, has_cache, use_cached_features  # noqa: E402
 
 
@@ -85,6 +86,13 @@ def main():
     p.add_argument("--resume_warmup", type=int, default=0,
                    help="cosine_from_resume: ramp the lr linearly over this many steps after the resume step")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
+    p.add_argument("--episode_info", default=None,
+                   help="per-episode scores (scripts/score_phone.py): dataset -> episode -> {t_min, quality}")
+    p.add_argument("--ambient_per_episode", type=int, default=0,
+                   help="1: ambient flow times use each episode's t_min from --episode_info (clean episodes: 0)")
+    p.add_argument("--quality_tag", type=int, default=0,
+                   help="1: append each episode's quality (--episode_info; unlisted episodes +1) to the normalized "
+                        "state; inference appends +1 (eval --quality)")
     p.add_argument("--save_every", type=int, default=500)
     p.add_argument("--save_from", type=int, default=0, help="count --save_every from this step (e.g. the resume step)")
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
@@ -134,6 +142,20 @@ def main():
                 print(f"built vision cache for {root} in {time.time() - t_c:.0f}s", flush=True)
         dss = [CachedChunkDataset(root, chunk, img_keys) for root in roots]
         policy = use_cached_features(policy)
+    if a.episode_info:
+        assert a.features == "cache", "--episode_info needs --features cache"
+        info = json.load(open(a.episode_info))["datasets"]
+        for root, ds in zip(roots, dss):
+            name = os.path.basename(os.path.normpath(root))
+            ep_info = info.get(name, {})
+            # unlisted episodes: sim (sigma_n 0) clean with quality +1; phone with --ambient_t_min and quality 0
+            ds.t_min = np.where(ds.sigma > 0, a.ambient_t_min, 0.0).astype(np.float32)
+            ds.quality = np.where(ds.sigma > 0, 0.0, 1.0).astype(np.float32)
+            for e, v in ep_info.items():
+                sel = ds.ep == int(e)
+                ds.t_min[sel], ds.quality[sel] = v["t_min"], v["quality"]
+            print(f"{name}: per-episode t_min/quality for {len(ep_info)} episodes from {a.episode_info}", flush=True)
+    assert not (a.ambient_per_episode or a.quality_tag) or a.episode_info, "needs --episode_info"
     for i, (root, filt) in enumerate(specs):
         keep = selected_episodes(root, filt)
         if keep is not None:
@@ -213,13 +235,19 @@ def main():
             raw = next(it)
             sigma = raw["sigma_n"].reshape(-1).float()
             batch = pre(raw)
+            if a.quality_tag:
+                st = batch["observation.state"]
+                batch["observation.state"] = torch.cat([st, raw["quality"].reshape(-1, 1).to(st)], dim=-1)
             # LeRobot reads "actions_id_pad" (sic) but datasets provide "action_is_pad": without this, padded
             # chunk tails (copies of the last action) would count in the loss.
             batch["actions_id_pad"] = batch["action_is_pad"].to(dev)
             for k in img_keys:
                 if PREFIX + k in raw:   # the preprocessor drops unknown keys; cached features go in directly
                     batch[PREFIX + k] = raw[PREFIX + k].to(dev)
-            t = ambient_time(sigma, a.ambient_t_min, gen).to(dev)   # ambient flow matching (off when t_min=0)
+            if a.ambient_per_episode:   # per-episode t_min from the quality score
+                t = ambient_time_per_sample(raw["t_min"], gen).to(dev)
+            else:
+                t = ambient_time(sigma, a.ambient_t_min, gen).to(dev)   # ambient flow matching (off when t_min=0)
             per, _ = policy.forward(batch, time=t, reduction="none")
             loss = per.mean()
             (loss / a.grad_accum).backward()

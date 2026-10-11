@@ -206,3 +206,14 @@ def load_run_config(run_dir):
     for k, ft in r["features"].items():
         ft["shape"] = tuple(ft["shape"])
     return r
+
+
+def with_quality(pre, quality):
+    """Preprocessor that appends a constant quality tag to the normalized state (runs trained with --quality_tag 1;
+    SmolVLA pads the state to max_state_dim, so the extra dimension needs no new weights)."""
+    def f(batch):
+        b = pre(batch)
+        st = b["observation.state"]
+        b["observation.state"] = torch.cat([st, torch.full_like(st[..., :1], float(quality))], dim=-1)
+        return b
+    return f

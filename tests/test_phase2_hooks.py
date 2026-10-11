@@ -120,3 +120,12 @@ def test_loss_t_max_per_sample():
     t = seen[0]
     assert t[:256].max() < 25 and t[:256].min() >= 0
     assert t[256:].min() >= 70 and t[256:].max() < 100
+
+
+def test_ambient_time_per_sample():
+    import torch
+    from vla.ambient import ambient_time_per_sample
+    t_min = torch.tensor([0.0, 0.5, 0.9] * 200)
+    t = ambient_time_per_sample(t_min, torch.Generator().manual_seed(0))
+    assert (t[t_min == 0.5] >= 0.5).all() and (t[t_min == 0.9] >= 0.9).all()
+    assert (t[t_min == 0] < 0.5).any()

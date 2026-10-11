@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
-                        pick_device, training_side_info)
+                        pick_device, training_side_info, with_quality)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
@@ -39,6 +39,7 @@ def main():
     p.add_argument("--until", type=int, default=None, help="with --watch: exit after probing this step")
     p.add_argument("--log", default=None, help="append each result line to this file")
     p.add_argument("--cubes", default="red,green,blue", help="named cubes to query (e.g. 'blue': 3x faster)")
+    p.add_argument("--quality", type=float, default=1.0, help="quality tag at inference (runs with --quality_tag 1)")
     a = p.parse_args()
     a.cube_ids = [CUBES.index(c) for c in a.cubes.split(",")]
     dev = pick_device(a.device)
@@ -47,6 +48,8 @@ def main():
     rc = load_run_config(a.run)
     env = PickPlaceEnv(env_config(training_side_info(rc).get("env_cfg")))
     policy, pre, post, _ = build_policy(rc["features"], rc["stats"], dev)
+    if rc["args"].get("quality_tag"):   # quality-conditioned run: request this quality (default: high)
+        pre = with_quality(pre, a.quality)
     cams, size = image_spec(rc["features"])
     policy.eval()
 

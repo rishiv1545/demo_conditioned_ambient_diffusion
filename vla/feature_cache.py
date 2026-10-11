@@ -115,6 +115,9 @@ class CachedChunkDataset(torch.utils.data.Dataset):
         item = {"observation.state": torch.from_numpy(self.state[i]), "action": torch.from_numpy(self.action[j]),
                 "action_is_pad": torch.from_numpy(pad), "sigma_n": torch.tensor(self.sigma[i]),
                 "task": self.task[i], "index": torch.tensor(self.index[i])}
+        if getattr(self, "t_min", None) is not None:   # per-episode scores (train_smolvla.py --episode_info)
+            item["t_min"] = torch.tensor(self.t_min[i])
+            item["quality"] = torch.tensor(self.quality[i])
         for k, f in self.feats.items():
             item[PREFIX + k] = torch.from_numpy(np.array(f[self.index[i]]))
         return item

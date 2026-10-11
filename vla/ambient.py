@@ -25,3 +25,10 @@ def ambient_time(sigma_n, t_min, generator=None):
         noisy = sigma_n > 0
         t = torch.where(noisy, t_min + (1.0 - t_min) * t, t)
     return t
+
+
+def ambient_time_per_sample(t_min, generator=None):
+    """Flow times [B] with a per-sample t_min [B] (e.g. from a phone quality score); t_min 0 = default distribution."""
+    t_min = t_min.reshape(-1).float()
+    t = smolvla_default_time(t_min.shape[0], t_min.device, generator)
+    return torch.where(t_min > 0, t_min + (1.0 - t_min) * t, t)

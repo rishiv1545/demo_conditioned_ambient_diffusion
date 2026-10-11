@@ -15,13 +15,14 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vla.common import (build_policy, image_spec, list_checkpoints, load_run_config, load_trainable,  # noqa: E402
-                        pick_device, training_side_info)
+                        pick_device, training_side_info, with_quality)
 
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
+from policy.data import save_episode  # noqa: E402
 from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
-from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_config,  # noqa: E402
+from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_cfg_dict, env_config,  # noqa: E402
                      instruction, parse_task, resolve_heldout, task_name)
 
 
@@ -37,8 +38,9 @@ def to_batch(envs, tasks, dev, cams, size):
 
 
 def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, cams=("phone",), size=256,
-              no_distractors=False, noise_scale=1.0):
-    """jobs: list of (task, seed). Returns list of (success, steps) and, for indices in `record`, frame lists."""
+              no_distractors=False, noise_scale=1.0, episodes=None):
+    """jobs: list of (task, seed). Returns list of (success, steps) and, for indices in `record`, frame lists.
+    episodes: a list to which one dict per job is appended (obs, executed actions, layout) for self-improvement."""
     envs = [PickPlaceEnv(env_cfg) for _ in jobs]
     for e, (t, s) in zip(envs, jobs):
         e.reset(task=t, seed=s)
@@ -53,6 +55,8 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
     done = np.zeros(len(jobs), bool)
     steps = np.zeros(len(jobs), int)
     frames = {i: [] for i in (record or [])}
+    ep_obs, ep_act = [[] for _ in jobs], [[] for _ in jobs]
+    layouts = [{k: np.array(v) for k, v in e.layout.items()} for e in envs]
     max_steps = envs[0].cfg.max_steps
     obs = None
     for _ in range(max_steps):
@@ -76,6 +80,9 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
                 was_open[i] = True
             elif was_open[i] and grasp_err[i] is None:
                 grasp_err[i] = (e.ee_pos() - e.cube_pos(tasks[i][0])).tolist()
+            if episodes is not None:
+                ep_obs[i].append(e.obs())
+                ep_act[i].append(np.asarray(act[i], np.float32))
             _, s = e.step(act[i])
             lifted[i] = max(lifted[i], e.cube_pos(tasks[i][0])[2])
             steps[i] += 1
@@ -95,6 +102,10 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
                      "held_at_end": bool(np.linalg.norm(e.ee_pos() - p) < e.cfg.release_dist),
                      "other_cubes_moved": others, "grasp_offset": grasp_err[i]})
         e.close()
+    if episodes is not None:
+        for i, (t, sd) in enumerate(jobs):
+            episodes.append({"task": t, "seed": sd, "success": bool(done[i]), "obs": np.array(ep_obs[i]),
+                             "action": np.array(ep_act[i]), "layout": layouts[i]})
     return [(bool(d), int(n), g) for d, n, g in zip(done, steps, diag)], frames
 
 
@@ -129,6 +140,12 @@ def main():
                    help="scale of the flow-matching start noise at inference (0 = deterministic, 1 = default)")
     p.add_argument("--no_distractors", action="store_true",
                    help="diagnostic: only the named cube and zone in the scene (others moved out of view)")
+    p.add_argument("--seed_base", type=int, default=None,
+                   help="layout seeds seed_base + task * 10000 + k (self-improvement rollouts: fresh layouts, not the "
+                        "eval seeds)")
+    p.add_argument("--save_episodes", default=None,
+                   help="dir: save every rollout as an episode .npz (successful ones are clean data, policy/data.py)")
+    p.add_argument("--quality", type=float, default=1.0, help="quality tag at inference (runs with --quality_tag 1)")
     a = p.parse_args()
     dev = pick_device(a.device)
     os.makedirs(a.out, exist_ok=True)
@@ -140,6 +157,8 @@ def main():
     print(f"cameras {cams} at {size} px; env: gripper yaw {env_cfg.gripper_yaw_deg:.0f} deg, starts {'closed' if env_cfg.start_gripper_closed else 'open'}")
     heldout = resolve_heldout(spec)
     policy, pre, post, _ = build_policy(rc["features"], rc["stats"], dev, n_action_steps=a.n_action_steps)
+    if rc["args"].get("quality_tag"):   # quality-conditioned run: request this quality (default: high)
+        pre = with_quality(pre, a.quality)
     step = "base"
     if a.step != "base":
         cks = dict(list_checkpoints(a.run))
@@ -149,7 +168,7 @@ def main():
     groups = {"all": ALL_TASKS, "seen": [t for t in ALL_TASKS if t not in heldout], "heldout": heldout}
     tasks = groups.get(a.tasks) or [parse_task(n) for n in a.tasks.split(",")]
     base = (lambda t: ALL_TASKS.index(t) * 100_000) if a.train_seeds else \
-        (lambda t: EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000)
+        (lambda t: (EVAL_SEED_BASE if a.seed_base is None else a.seed_base) + ALL_TASKS.index(t) * 10_000)
     jobs = [(t, base(t) + k) for t in tasks for k in range(a.k)]
     print(f"{a.run} step {step} on {dev}: {len(jobs)} episodes, held-out = {[task_name(t) for t in heldout]}")
     rows, t0 = [], time.time()
@@ -163,8 +182,14 @@ def main():
             if vid_left[sp] > 0 and j % 6 == 0:
                 rec.append(j)
                 vid_left[sp] -= 1
+        eps = [] if a.save_episodes else None
         res, frames = run_batch(policy, pre, post, chunk, dev, record=rec, env_cfg=env_cfg, cams=cams, size=size,
-                                no_distractors=a.no_distractors, noise_scale=a.noise_scale)
+                                no_distractors=a.no_distractors, noise_scale=a.noise_scale, episodes=eps)
+        for ep in eps or []:
+            save_episode(os.path.join(a.save_episodes, f"{task_name(ep['task'])}_{ep['seed']}.npz"), ep["obs"],
+                         ep["action"], ep["task"], "sim", ep["layout"], ep["success"],
+                         meta={"seed": ep["seed"], "env_cfg": env_cfg_dict(env_cfg), "rollout_of": a.run,
+                               "step": step, "noise_scale": a.noise_scale})
         for (t, s), (ok, n, g) in zip(chunk, res):
             rows.append((t, s, ok, n, g))
         for j, fr in frames.items():
