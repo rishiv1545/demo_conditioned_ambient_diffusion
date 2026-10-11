@@ -562,6 +562,25 @@
         ]
       ],
       "_note": "single task blue-orange from smolvla_base on 11 successful blue-orange phone replays (sessions 3+4: 6+5); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1R_sim_100": {
+      "data": [
+        "sim_bo_320?per_task=100"
+      ],
+      "train": "--unfreeze_vlm 1 --lr 1e-4 --vlm_lr 1e-5 --lr_floor 2.5e-6 --lr_schedule cosine_from_resume --resume_warmup 500 --steps 48000 --save_from 33000 --save_every 7500",
+      "init_from": "V0_30k_rec_decay3k",
+      "eval_k": 20,
+      "eval_steps": [
+        40500,
+        48000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from the red/green recovery+decay checkpoint (step 33k) on 100 clean sim demos (first 100 of sim_bo_320); T1 recipe: 500-step warmup, cosine 1e-4 -> 2.5e-6 (VLM 1e-5) over 15k steps; zero-noise eval (20 episodes) at the midpoint and the end. Compare T1_sim_80/160 from smolvla_base"
     }
   }
 }

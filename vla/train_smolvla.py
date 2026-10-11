@@ -86,6 +86,7 @@ def main():
                    help="cosine_from_resume: ramp the lr linearly over this many steps after the resume step")
     p.add_argument("--ambient_t_min", type=float, default=0.0, help="0 = off (V0/V1); >0 restricts sigma_n>0 samples")
     p.add_argument("--save_every", type=int, default=500)
+    p.add_argument("--save_from", type=int, default=0, help="count --save_every from this step (e.g. the resume step)")
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
                    help="tasks: sample every task (language instruction) equally often, frames uniform within a task "
                         "(scarce held-out-task data otherwise is ~1%% of the samples)")
@@ -243,7 +244,7 @@ def main():
             print(f"step {step:6d}  loss {m['loss']:.4f}  {sps:.2f}s/step  {(now - t0) / 60:.1f} min", flush=True)
         out_of_time = a.max_minutes and (time.time() - t0) / 60 > a.max_minutes
         stop = os.path.exists(os.path.join(run_dir, "STOP"))   # early stopping requested (colab/job.py)
-        if step % a.save_every == 0 or step == a.steps or out_of_time or stop:
+        if (step - a.save_from) % a.save_every == 0 or step == a.steps or out_of_time or stop:
             d = save_checkpoint(run_dir, step, policy, opt, sched)
             print("saved", d, flush=True)
         if out_of_time:
