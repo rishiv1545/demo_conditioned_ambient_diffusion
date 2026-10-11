@@ -161,6 +161,15 @@ def probe_results(path):
     return out
 
 
+def best_probe_step(run_dir, log):
+    """The checkpoint with the best probe accuracy in probe.txt (ties: smaller nearest-cube distance, then earlier)."""
+    res = probe_results(f"{run_dir}/probe.txt")
+    step = min(res, key=lambda s: (-res[s][0], res[s][1], s))
+    write_json(f"{run_dir}/best_probe.json", {"step": step, "probe": {str(k): v for k, v in sorted(res.items())}})
+    log.write(f"best probe step {step}: {res[step]}\n")
+    return step
+
+
 def plateaued(res, init_step, es):
     """True when neither the blue probe accuracy (by acc_tol) nor the nearest-cube distance (by dist_tol_cm) has
     improved on its running best for es["patience"] steps; the init checkpoint is the starting point."""
@@ -340,7 +349,11 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         log.write(f"plateau step {eval_steps[0]}\n")
                     # variants: [[tag, args], ...] from runs.json (e.g. normal and zero-noise sampling), else the CLI's
                     variants = cfg.get("eval_variants") or [[eval_tag, eval_args]]
-                    for step in eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]:   # e.g. a step matching another run
+                    steps = eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]   # e.g. a step matching another run
+                    if "best_probe" in steps:   # list entry: the best checkpoint by the probe (probe_step "all")
+                        b = best_probe_step(run_dir, log)
+                        steps = list(dict.fromkeys(b if x == "best_probe" else x for x in steps))
+                    for step in steps:
                         for tag, vargs in variants:
                             ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{tag}"
                             if os.path.exists(f"{ed}/summary.json"):

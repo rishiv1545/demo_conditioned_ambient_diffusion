@@ -36,3 +36,15 @@ def test_select_first_n_per_task_and_cube(tmp_path):
 
 def test_frames_of_episodes():
     assert frames_of_episodes(np.array([0, 0, 1, 1, 1, 3]), [1, 3]) == [2, 3, 4, 5]
+
+
+def test_success_and_per_task_counts(tmp_path):
+    tasks = ["blue-yellow", "blue-orange", "blue-yellow", "blue-orange", "blue-yellow"]
+    eps = [{"episode_index": i, "task": t, "success": i != 2} for i, t in enumerate(tasks)]
+    (tmp_path / "episodes.json").write_text(json.dumps({"episodes": eps}))
+    root = str(tmp_path)
+    assert parse_data_spec("x?success=1&per_task=blue-yellow:2,blue-orange:1")[1] == {
+        "success": True, "per_task": {"blue-yellow": 2, "blue-orange": 1}}
+    assert selected_episodes(root, {"success": True}) == [0, 1, 3, 4]
+    assert selected_episodes(root, {"per_task": {"blue-yellow": 2, "blue-orange": 1}}) == [0, 1, 2]
+    assert selected_episodes(root, {"success": True, "per_task": {"blue-yellow": 2}}) == [0, 4]

@@ -34,18 +34,21 @@ def base_config():
 
 def parse_data_spec(spec):
     """"root" or "root?per_task=4&cube=blue" -> (root, filters). per_task keeps the first N episodes of each task
-    (episode order); cube keeps tasks whose target cube is in the comma list. Used to vary the amount of clean
+    (episode order), or per task with "per_task=blue-orange:11,blue-purple:13"; cube keeps tasks whose target cube is
+    in the comma list; success=1 keeps episodes whose sim replay succeeded. Used to vary the amount of clean
     held-out data without exporting a dataset per amount."""
     root, _, q = spec.partition("?")
     f = {}
     for kv in filter(None, q.split("&")):
         k, v = kv.split("=", 1)
         if k == "per_task":
-            f[k] = int(v)
+            f[k] = int(v) if ":" not in v else {t: int(n) for t, n in (x.split(":") for x in v.split(","))}
+        elif k == "success":
+            f[k] = bool(int(v))
         elif k == "cube":
             f[k] = set(v.split(","))
         else:
-            raise ValueError(f"unknown data filter {k!r} in {spec!r} (per_task, cube)")
+            raise ValueError(f"unknown data filter {k!r} in {spec!r} (per_task, cube, success)")
     return root, f
 
 
@@ -59,7 +62,10 @@ def selected_episodes(root, filters):
     for e in sorted(eps, key=lambda e: e["episode_index"]):
         if "cube" in filters and e["task"].split("-")[0] not in filters["cube"]:
             continue
-        if count.get(e["task"], 0) >= filters.get("per_task", 10 ** 9):
+        if "success" in filters and bool(e["success"]) != filters["success"]:
+            continue
+        cap = filters.get("per_task", 10 ** 9)
+        if count.get(e["task"], 0) >= (cap.get(e["task"], 0) if isinstance(cap, dict) else cap):
             continue
         count[e["task"]] = count.get(e["task"], 0) + 1
         keep.append(e["episode_index"])
