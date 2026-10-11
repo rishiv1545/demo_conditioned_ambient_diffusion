@@ -261,6 +261,45 @@ def train_early_stop(run_dir, train_cmd, init_step, es, log):
     return finish_selection(run_dir, probe_results(plog), init_step, es, last, log)
 
 
+def cube_acc(path, cube):
+    """{step: accuracy of one cube's probe row} from a probe log (all-cube probes print per-cube rows)."""
+    out, step = {}, None
+    if os.path.exists(path):
+        for line in open(path).read().splitlines():
+            m = re.match(r"^step\s+(\d+):", line)
+            if m:
+                step = int(m.group(1))
+            m = re.match(rf"^\s+{cube}\s+accuracy ([\d.]+)", line)
+            if m and step is not None:
+                out[step] = float(m.group(1))
+    return out
+
+
+def train_chance_stop(run_dir, train_cmd, cs, log):
+    """Train while a watcher probes every saved checkpoint (all cubes, into probe.txt); write STOP if the probe
+    accuracy of cs["cube"] at step cs["step"] is still at most cs["max_acc"] (chance is 0.33)."""
+    plog, stop = f"{run_dir}/probe.txt", f"{run_dir}/STOP"
+    if os.path.exists(stop):
+        os.remove(stop)
+    env = {**os.environ, **ENV}
+    log.write(f"\n$ {train_cmd}\n")
+    log.flush()
+    tr = subprocess.Popen(train_cmd, shell=True, cwd=REPO, stdout=log, stderr=subprocess.STDOUT, env=env)
+    pr = subprocess.Popen(f"python vla/probe_grounding.py --run {run_dir} --watch --layouts 32 --device cuda "
+                          f"--log {plog}", shell=True, cwd=REPO, stdout=open(f"{run_dir}/probe_watch.out", "a"),
+                          stderr=subprocess.STDOUT, env=env)
+    while tr.poll() is None:
+        time.sleep(20)
+        acc = cube_acc(plog, cs["cube"]).get(cs["step"])
+        if acc is not None and acc <= cs["max_acc"] and not os.path.exists(stop):
+            open(stop, "w").close()
+            log.write(f"{cs['cube']} probe {acc:.2f} <= {cs['max_acc']} at step {cs['step']}: STOP\n")
+            write_json(f"{run_dir}/chance_stop.json", {**cs, "acc": acc})
+    pr.kill()
+    if tr.returncode != 0:
+        raise RuntimeError(f"exit {tr.returncode}: {train_cmd}")
+
+
 def init_from(src_name, run_dir, log):
     """Continue another run: copy its latest checkpoint (weights + optimizer state) and its loss.csv up to that step,
     so train_smolvla.py --resume picks it up and the source run stays untouched."""
@@ -313,7 +352,10 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         train_args += f" --stats_from {OUT}/{cfg['init_from']}"
                     cmd = (f"python vla/train_smolvla.py --run_name {name} --data "
                            f"{' '.join(shlex.quote(sp) for _, sp in specs)} --out {OUT} {train_args}")
-                    if "early_stop" in cfg:   # ({} = the defaults)
+                    if "chance_stop" in cfg:   # stop if a cube's probe is still at chance at a given step
+                        if not os.path.exists(f"{run_dir}/chance_stop.json"):
+                            train_chance_stop(run_dir, cmd, cfg["chance_stop"], log)
+                    elif "early_stop" in cfg:   # ({} = the defaults)
                         es = {**EARLY_STOP, **cfg["early_stop"]}
                         init_step = latest_step(f"{OUT}/{cfg['init_from']}") if cfg.get("init_from") else 0
                         if not os.path.exists(f"{run_dir}/selected.json"):
@@ -360,7 +402,9 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                     if "best_probe" in steps:   # list entry: the best checkpoint by the probe (probe_step "all")
                         b = best_probe_step(run_dir, log)
                         steps = list(dict.fromkeys(b if x == "best_probe" else x for x in steps))
-                    for step in steps:
+                    have = {int(os.path.basename(d)[5:]) for d in glob.glob(f"{run_dir}/step_*")
+                            if os.path.exists(f"{d}/trainable.pt")}
+                    for step in [x for x in steps if x in have] or [latest_step(run_dir)]:
                         for tag, vargs in variants:
                             ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{tag}"
                             if os.path.exists(f"{ed}/summary.json"):

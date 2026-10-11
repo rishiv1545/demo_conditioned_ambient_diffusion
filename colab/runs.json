@@ -641,6 +641,38 @@
         "phone_v3_blue?per_task=blue-orange:99"
       ],
       "_note": "phone-only single task blue-orange from the recovery+decay checkpoint, T1R recipe; quality-tagged: score -> tag appended to the state, inference requests +1. Add the new recording session's dataset to data and rescore (scripts/score_phone.py) before running."
+    },
+    "J_sim40": {
+      "data": [
+        "sim_seen_v2c_100",
+        "sim_seen_rec_60",
+        "sim_bo_320?per_task=40"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 33000 --lr_schedule constant_then_cosine --decay_at 30000 --lr_floor 2.5e-6 --save_every 2500 --mix 0.44,0.26,0.30",
+      "probe": "--layouts 32",
+      "probe_step": "all",
+      "chance_stop": {
+        "cube": "blue",
+        "step": 15000,
+        "max_acc": 0.4
+      },
+      "eval_k": 50,
+      "eval_steps": [
+        15000,
+        30000,
+        33000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ],
+        [
+          "_seen_k10_zn",
+          "--tasks seen --k 10 --noise_scale 0"
+        ]
+      ],
+      "_note": "joint training from smolvla_base: red/green clean (600) + recovery (360) + 40 clean sim blue-orange demos (stand-in for the phone replays), mix 44/26/30% per batch; V0+recovery recipe in one run: constant 1e-4 (VLM 1e-5) to 30k, cosine to 2.5e-6 at 33k; checkpoints and all-cube probe every 2.5k; STOP if the blue probe is <= 0.40 at 15k; zero-noise eval at 15k/30k/33k: blue-orange 50, red/green 10 per task"
     }
   }
 }

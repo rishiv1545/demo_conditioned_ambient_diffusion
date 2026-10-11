@@ -80,7 +80,7 @@ def main():
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--lr_floor", type=float, default=2.5e-6)
     p.add_argument("--warmup", type=int, default=300)
-    p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant", "cosine_from_resume"],
+    p.add_argument("--lr_schedule", default="cosine", choices=["cosine", "constant", "cosine_from_resume", "constant_then_cosine"],
                    help="constant: hold lr after warmup (no decay); cosine_from_resume: hold lr until the resume step, "
                         "then cosine-decay from it to --lr_floor at --steps (e.g. finishing a constant-lr run)")
     p.add_argument("--resume_warmup", type=int, default=0,
@@ -94,6 +94,8 @@ def main():
                    help="1: append each episode's quality (--episode_info; unlisted episodes +1) to the normalized "
                         "state; inference appends +1 (eval --quality)")
     p.add_argument("--save_every", type=int, default=500)
+    p.add_argument("--decay_at", type=int, default=0,
+                   help="constant_then_cosine: hold lr after warmup until this step, then cosine to --lr_floor at --steps")
     p.add_argument("--save_from", type=int, default=0, help="count --save_every from this step (e.g. the resume step)")
     p.add_argument("--balance", default="none", choices=["none", "tasks"],
                    help="tasks: sample every task (language instruction) equally often, frames uniform within a task "
@@ -193,6 +195,10 @@ def main():
             ramp = min(1.0, (s - decay_from["step"] + 1) / a.resume_warmup) if a.resume_warmup else 1.0
             return ramp * (a.lr_floor + (a.lr - a.lr_floor) * 0.5 * (1 + np.cos(np.pi * q))) / a.lr
         sched = torch.optim.lr_scheduler.LambdaLR(opt, from_resume)
+    elif a.lr_schedule == "constant_then_cosine":   # one run: V0's constant phase + the decay (resume-safe)
+        assert 0 < a.decay_at < a.steps, "--decay_at must be inside the run"
+        sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / a.warmup) if s < a.decay_at else
+                                                  lr_lambda(s - a.decay_at, 0, a.steps - a.decay_at, a.lr, a.lr_floor))
     else:
         sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: lr_lambda(s, a.warmup, a.steps, a.lr, a.lr_floor))
     start = 0
