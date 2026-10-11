@@ -9,6 +9,10 @@ session.json maps each canonical name to the real household object and its color
 "hsv" is a list of [lo, hi] ranges in OpenCV units (H 0-179, S and V 0-255); several ranges handle hue wrap-around.
 Missing entries fall back to the defaults below. A per-clip "<clip>.layout.json" (from scripts/click_layout.py)
 overrides color detection for that clip.
+
+Single-object sessions (the constrained blue cube -> red zone task, env v3s) set "scene": "single" and list one
+object ("blue") and one zone ("red"); clips are named blue_to_red_NN.MOV. Their items are keyed "blue" and
+"red_zone" (the red cube's name is taken), and click_layout.py asks for 2 clicks per clip.
 """
 import json
 import os
@@ -28,24 +32,45 @@ DEFAULT_HSV = {
     "purple": [((126, 50, 40), (165, 255, 255))],
 }
 DEFAULT_OBJ_HEIGHT_CM = 4.0
-ORDER = list(CUBES) + list(ZONES)  # fixed click order: 3 objects, then 3 zones
+ORDER = list(CUBES) + list(ZONES[:3])  # fixed click order: 3 objects, then 3 zones
+SINGLE_ORDER = ["blue", "red_zone"]       # single-object scene: the blue object, then the red zone
+
+
+def is_single(session):
+    return session.get("scene", "multi") == "single"
+
+
+def session_order(session):
+    return SINGLE_ORDER if is_single(session) else ORDER
+
+
+def item_key(kind, name):
+    """Spec/layout key of a session.json entry: the canonical name, except the single scene's red zone."""
+    return "red_zone" if (kind, name) == ("zone", "red") else name
+
+
+def item_name(key):
+    return "red" if key == "red_zone" else key
 
 
 def session_specs(session):
-    """{canonical name: {"kind": "object"|"zone", "label", "height_m", "hsv": [(lo, hi), ...]}} for all 6 items."""
-    given = {e["name"]: e for e in session.get("objects", []) + session.get("zones", [])}
-    unknown = set(given) - set(ORDER)
+    """{key: {"kind": "object"|"zone", "label", "height_m", "hsv": [(lo, hi), ...]}} for the session's items in
+    click order (6 for the multi-object scene, 2 for the single one)."""
+    order = session_order(session)
+    given = {item_key("object", e["name"]): e for e in session.get("objects", [])}
+    given.update({item_key("zone", e["name"]): e for e in session.get("zones", [])})
+    unknown = set(given) - set(order)
     if unknown:
-        raise ValueError(f"session.json names {sorted(unknown)} must be one of {ORDER}")
+        raise ValueError(f"session.json names {sorted(unknown)} must be one of {[item_name(k) for k in order]}")
     specs = {}
-    for name in ORDER:
-        e = given.get(name, {})
-        kind = "object" if name in CUBES else "zone"
-        specs[name] = {
+    for key in order:
+        e = given.get(key, {})
+        kind = "zone" if key in ZONES[:3] or key == "red_zone" else "object"
+        specs[key] = {
             "kind": kind,
-            "label": e.get("label", name),
+            "label": e.get("label", item_name(key)),
             "height_m": (e.get("height_cm", DEFAULT_OBJ_HEIGHT_CM) if kind == "object" else 0.0) / 100.0,
-            "hsv": [tuple(map(tuple, r)) for r in e["hsv"]] if "hsv" in e else DEFAULT_HSV[name],
+            "hsv": [tuple(map(tuple, r)) for r in e["hsv"]] if "hsv" in e else DEFAULT_HSV[item_name(key)],
         }
     return specs
 
@@ -96,7 +121,7 @@ def largest_blob(mask, min_area_px):
 
 
 # ---------------------------------------------------------------------------- clip names
-CLIP_RE = re.compile(r"^(red|green|blue)(?:-|_to_)(yellow|purple|orange)(_rec)?(?:_(\d+))?\.(mp4|mov|m4v)$",
+CLIP_RE = re.compile(r"^(red|green|blue)(?:-|_to_)(yellow|purple|orange|red)(_rec)?(?:_(\d+))?\.(mp4|mov|m4v)$",
                      re.IGNORECASE)
 
 
@@ -123,19 +148,19 @@ def layout_json_path(session_dir, clip):
     return os.path.join(session_dir, os.path.splitext(clip)[0] + ".layout.json")
 
 
-def save_layout_json(path, table_xy_by_name, meta=None):
+def save_layout_json(path, table_xy_by_name, meta=None, order=ORDER):
     with open(path, "w") as f:
         json.dump({"positions_m": {k: [float(v[0]), float(v[1])] for k, v in table_xy_by_name.items()},
-                   "order": ORDER, **(meta or {})}, f, indent=2)
+                   "order": list(order), **(meta or {})}, f, indent=2)
 
 
-def load_layout_json(path):
-    """-> {name: xy} for all 6 items (already parallax-corrected, in table meters), or None if absent."""
+def load_layout_json(path, order=ORDER):
+    """-> {name: xy} for all items in order (already parallax-corrected, in table meters), or None if absent."""
     if not os.path.exists(path):
         return None
     with open(path) as f:
         d = json.load(f)["positions_m"]
-    missing = [n for n in ORDER if n not in d]
+    missing = [n for n in order if n not in d]
     if missing:
         raise ValueError(f"{path} is missing {missing}")
-    return {n: np.asarray(d[n], float) for n in ORDER}
+    return {n: np.asarray(d[n], float) for n in order}

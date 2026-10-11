@@ -673,6 +673,42 @@
         ]
       ],
       "_note": "joint training from smolvla_base: red/green clean (600) + recovery (360) + 40 clean sim blue-orange demos (stand-in for the phone replays), mix 44/26/30% per batch; V0+recovery recipe in one run: constant 1e-4 (VLM 1e-5) to 30k, cosine to 2.5e-6 at 33k; checkpoints and all-cube probe every 2.5k; STOP if the blue probe is <= 0.40 at 15k; zero-noise eval at 15k/30k/33k: blue-orange 50, red/green 10 per task"
+    },
+    "S1_sim_50": {
+      "data": [
+        "sim_v3s_200?per_task=50"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "constrained single-object task (env v3s: only the blue cube, fixed red zone, cube in a 10x10 cm box) from smolvla_base on 50 clean sim demos (first n of sim_v3s_200); T1 recipe (cosine over 15k); zero-noise eval (20 episodes) at the midpoint and the end. Reference for the phone runs"
+    },
+    "S1_sim_100": {
+      "data": [
+        "sim_v3s_200?per_task=100"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "constrained single-object task (env v3s: only the blue cube, fixed red zone, cube in a 10x10 cm box) from smolvla_base on 100 clean sim demos (first n of sim_v3s_200); T1 recipe (cosine over 15k); zero-noise eval (20 episodes) at the midpoint and the end. Reference for the phone runs"
     }
   }
 }

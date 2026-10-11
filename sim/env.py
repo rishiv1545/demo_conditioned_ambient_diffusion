@@ -19,8 +19,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENE = os.path.join(ROOT, "assets", "scene.xml")
 
 CUBES = ("red", "green", "blue")
-ZONES = ("yellow", "purple", "orange")
+ZONES = ("yellow", "purple", "orange", "red")   # red: only in the single-object scene
 ALL_TASKS = [(c, z) for c in range(3) for z in range(3)]
+SINGLE_TASK = (2, 3)  # "put the blue cube in the red zone" (EnvConfig.scene "single")
 # Held-out task splits. "object" (default): the blue cube is never a target in sim demos (it is still in every
 # scene as a distractor), so phone demos are the only source for the blue tasks. "combo": a Latin square of
 # (cube, zone) pairs where every cube and zone still appears in some seen task. A policy with factored
@@ -32,13 +33,19 @@ SPLITS = {
 DEFAULT_SPLIT = "object"
 DEFAULT_HELDOUT = SPLITS[DEFAULT_SPLIT]
 
-OBS_DIM = 19  # ee(3) + gripper width(1) + cubes(3x3) + zones xy(3x2)
+OBS_DIM = 19  # ee(3) + gripper width(1) + cubes(3x3) + zones xy(3x2); 21 in the single-object scene (4 zones)
 STATE_DIM = 4  # SmolVLA observation.state: ee(3) + gripper width(1); no privileged object positions
 # Image observations for SmolVLA. v2 images: a scene camera framed to the workspace plus a wrist camera, both at
 # 512 px (SmolVLA's input size, so no upsampling). The first pilot used ("phone",) at 256 px; evaluation always
 # takes the cameras and size from the training data's features.
 IMAGE_CAMERAS = ("scene", "wrist")
 IMAGE_SIZE = 512
+
+
+def task_index(task):
+    """Index for seeds (data: index * 100_000 + k, eval: 1_000_000 + index * 10_000 + k): the 9 multi-object tasks,
+    then the single-object task (9)."""
+    return (ALL_TASKS + [SINGLE_TASK]).index(tuple(task))
 
 
 def task_name(task):
@@ -95,19 +102,34 @@ class EnvConfig:
     gripper_yaw_deg: float = 90.0
     start_gripper_closed: bool = True
     release_dist: float = 0.045                 # "released": fingertip center this far from the cube center
+    # v3s (2026-10-11), the constrained single-object task: only the blue cube and a red zone are on the table.
+    # The zone is fixed; the cube starts uniformly in a 10 x 10 cm square clear of the zone (cube edge >= 5.5 cm
+    # from the zone edge). The other cubes float below the table (gravity-compensated), the other zones are parked
+    # below it; layouts keep all 3 cubes and 4 zones (parked ones at PARK_XY), so obs has 21 values.
+    scene: str = "multi"                        # "multi" (3 cubes, 3 zones) | "single"
+    single_zone_xy: tuple = (0.15, 0.25)
+    single_cube_box: tuple = (0.28, 0.38, 0.07, 0.17)   # xmin, xmax, ymin, ymax of the cube center
 
 
 LEGACY_V1 = dict(gripper_yaw_deg=0.0, start_gripper_closed=False)
+SINGLE_V3S = dict(scene="single")
+PARK_XY = (5.0, 5.0)   # parked (absent) cubes and zones: far from everything, below the table
 
 
 def env_cfg_dict(cfg):
     """The settings that define the data-generating env version (stored with every episode and dataset)."""
-    return {"gripper_yaw_deg": float(cfg.gripper_yaw_deg), "start_gripper_closed": bool(cfg.start_gripper_closed)}
+    d = {"gripper_yaw_deg": float(cfg.gripper_yaw_deg), "start_gripper_closed": bool(cfg.start_gripper_closed)}
+    if cfg.scene != "multi":
+        d.update(scene=cfg.scene, single_zone_xy=[float(v) for v in cfg.single_zone_xy],
+                 single_cube_box=[float(v) for v in cfg.single_cube_box])
+    return d
 
 
 def env_config(d=None):
     """EnvConfig from a stored dict (dataset/episode metadata). A missing dict means data made before v2."""
-    return EnvConfig(**(LEGACY_V1 if d is None else d))
+    if d is None:
+        return EnvConfig(**LEGACY_V1)
+    return EnvConfig(**{k: tuple(v) if isinstance(v, list) else v for k, v in d.items()})
 
 
 class PickPlaceEnv:
@@ -127,6 +149,9 @@ class PickPlaceEnv:
         self.cube_qadr = [self.m.jnt_qposadr[self.m.joint(f"cube_{c}").id] for c in CUBES]
         self.cube_body = [self.m.body(f"cube_{c}").id for c in CUBES]
         self.zone_mocap = [self.m.body_mocapid[self.m.body(f"zone_{z}").id] for z in ZONES]
+        self.cube_dof = [self.m.jnt_dofadr[self.m.joint(f"cube_{c}").id] for c in CUBES]
+        # single-object scene: absent cubes are pinned below the table (reset every physics step)
+        self.parked = [i for i in range(len(CUBES)) if i != SINGLE_TASK[0]] if self.cfg.scene == "single" else []
         self.finger_qadr = [self.m.jnt_qposadr[self.m.joint(j).id] for j in ("finger_joint1", "finger_joint2")]
         self.render_size = render_size
         self._renderer = None
@@ -145,6 +170,9 @@ class PickPlaceEnv:
     # ------------------------------------------------------------------ layout
     def sample_layout(self, rng):
         c = self.cfg
+        if c.scene == "single":
+            x0, x1, y0, y1 = c.single_cube_box
+            return self.single_layout(rng.uniform([x0, y0], [x1, y1]))
         x0, x1, y0, y1 = c.workspace
         for _ in range(10000):
             zh, ch = c.zone_half + 0.01, c.cube_half + 0.02
@@ -158,6 +186,15 @@ class PickPlaceEnv:
                 continue
             return {"cubes": cubes, "zones": zones}
         raise RuntimeError("could not sample a layout")
+
+    def single_layout(self, cube_xy, zone_xy=None):
+        """Single-object scene layout: the blue cube at cube_xy, the red zone at zone_xy (default: the fixed
+        position), everything else parked."""
+        cubes = np.tile(np.asarray(PARK_XY, float), (len(CUBES), 1))
+        zones = np.tile(np.asarray(PARK_XY, float), (len(ZONES), 1))
+        cubes[SINGLE_TASK[0]] = cube_xy
+        zones[SINGLE_TASK[1]] = self.cfg.single_zone_xy if zone_xy is None else zone_xy
+        return {"cubes": cubes, "zones": zones}
 
     # ------------------------------------------------------------------ core API
     def reset(self, task=(0, 0), seed=None, layout=None, ee_start=None):
@@ -174,11 +211,15 @@ class PickPlaceEnv:
         self.d.qpos[self.finger_qadr] = 0.0 if closed else 0.04
         self.d.ctrl[:7] = q
         self.d.ctrl[7] = 0.0 if closed else 255.0
+        single = self.cfg.scene == "single"
         for i, a in enumerate(self.cube_qadr):
-            self.d.qpos[a:a + 3] = [*self.layout["cubes"][i], self.cfg.cube_half]
+            park = single and i != SINGLE_TASK[0]
+            self.d.qpos[a:a + 3] = [*self.layout["cubes"][i], -0.5 if park else self.cfg.cube_half]
             self.d.qpos[a + 3:a + 7] = [1, 0, 0, 0]
-        for i, mid in enumerate(self.zone_mocap):
-            self.d.mocap_pos[mid] = [*self.layout["zones"][i], 0.0005]
+        for i, mid in enumerate(self.zone_mocap):   # zones beyond the layout's (the red zone in "multi") are parked
+            zl = self.layout["zones"]
+            park = i >= len(zl) or (single and i != SINGLE_TASK[1])
+            self.d.mocap_pos[mid] = [*(zl[i] if i < len(zl) else PARK_XY), -0.5 if park else 0.0005]
         mujoco.mj_forward(self.m, self.d)
         self.ee_target = self.ee_pos().copy()
         self.t = 0
@@ -201,6 +242,10 @@ class PickPlaceEnv:
             self.d.ctrl[:7] = q_prev + (q_cmd - q_prev) * (k + 1) / self.n_sub
             self.d.qfrc_applied[:7] = self.d.qfrc_bias[:7]  # gravity/Coriolis compensation, as on the real arm
             mujoco.mj_step(self.m, self.d)
+            for i in self.parked:
+                a, v = self.cube_qadr[i], self.cube_dof[i]
+                self.d.qpos[a:a + 7] = [*self.layout["cubes"][i], -0.5, 1, 0, 0, 0]
+                self.d.qvel[v:v + 6] = 0.0
         self.t += 1
         return self.obs(), self.success()
 

@@ -23,7 +23,7 @@ import torch  # noqa: E402
 from policy.data import save_episode  # noqa: E402
 from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
 from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_cfg_dict, env_config,  # noqa: E402
-                     instruction, parse_task, resolve_heldout, task_name)
+                     instruction, parse_task, resolve_heldout, task_index, task_name)
 
 
 def to_batch(envs, tasks, dev, cams, size):
@@ -167,8 +167,8 @@ def main():
     policy.eval()
     groups = {"all": ALL_TASKS, "seen": [t for t in ALL_TASKS if t not in heldout], "heldout": heldout}
     tasks = groups.get(a.tasks) or [parse_task(n) for n in a.tasks.split(",")]
-    base = (lambda t: ALL_TASKS.index(t) * 100_000) if a.train_seeds else \
-        (lambda t: (EVAL_SEED_BASE if a.seed_base is None else a.seed_base) + ALL_TASKS.index(t) * 10_000)
+    base = (lambda t: task_index(t) * 100_000) if a.train_seeds else \
+        (lambda t: (EVAL_SEED_BASE if a.seed_base is None else a.seed_base) + task_index(t) * 10_000)
     jobs = [(t, base(t) + k) for t in tasks for k in range(a.k)]
     print(f"{a.run} step {step} on {dev}: {len(jobs)} episodes, held-out = {[task_name(t) for t in heldout]}")
     rows, t0 = [], time.time()

@@ -2,7 +2,7 @@
 
 Episode format (one .npz per episode):
     obs [T, OBS_DIM] float32, action [T, 4] float32, task int[2] (cube, zone), source "sim"|"human",
-    layout [6, 2] (cube xy rows 0-2, zone xy rows 3-5), success bool, sigma_n float (0 for sim, NaN for human
+    layout [6, 2] (cube xy rows 0-2, zone xy rows 3-5; [7, 2] in the single-object scene, red zone row 6), success bool, sigma_n float (0 for sim, NaN for human
     until Phase 2), meta (JSON string), and for human data raw_traj [N, 3] and raw_gripper [N].
 """
 import glob
@@ -28,7 +28,7 @@ def save_episode(path, obs, action, task, source, layout, success, sigma_n=None,
 
 def layout_from_array(lay):
     lay = np.asarray(lay)
-    return {"cubes": lay[:3].copy(), "zones": lay[3:6].copy()}
+    return {"cubes": lay[:3].copy(), "zones": lay[3:].copy()}   # 3 zones, or 4 in the single-object scene
 
 
 def _read(path):

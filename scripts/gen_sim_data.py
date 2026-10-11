@@ -1,6 +1,7 @@
 """Generate clean scripted-expert demos: N successful episodes per task for the chosen task split.
 
     python scripts/gen_sim_data.py --out data/sim --n_per_task 20 --tasks seen
+    python scripts/gen_sim_data.py --out data/sim_v3s --n_per_task 200 --scene single   # blue cube -> red zone only
 """
 import argparse
 import os
@@ -10,8 +11,8 @@ from multiprocessing import get_context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from policy.data import save_episode  # noqa: E402
-from sim.env import (ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, env_cfg_dict, parse_task, resolve_heldout,  # noqa: E402
-                     task_name)
+from sim.env import (ALL_TASKS, DEFAULT_SPLIT, SINGLE_TASK, EnvConfig, PickPlaceEnv, env_cfg_dict, parse_task,  # noqa: E402
+                     resolve_heldout, task_index, task_name)
 from sim.expert import run_expert_episode  # noqa: E402
 
 DATA_SEED_BASE = 0  # data seeds: task_index * 100_000 + k; eval seeds live at >= 1_000_000
@@ -21,9 +22,9 @@ _env = None
 
 def _work(args):
     global _env
-    task, n, out = args
-    _env = _env or PickPlaceEnv()
-    ti = ALL_TASKS.index(task)
+    task, n, out, scene = args
+    _env = _env or PickPlaceEnv(EnvConfig(scene=scene))
+    ti = task_index(task)
     kept, tried = 0, 0
     while kept < n:
         seed = DATA_SEED_BASE + ti * 100_000 + tried
@@ -53,13 +54,15 @@ def main():
     p.add_argument("--n_per_task", type=int, default=20)
     p.add_argument("--tasks", default="seen", help="seen | heldout | all | comma list like red-yellow,blue-orange")
     p.add_argument("--heldout", default=DEFAULT_SPLIT, help="object | combo | object:<cube> | zone:<zone> | task list")
+    p.add_argument("--scene", default="multi", choices=["multi", "single"],
+                   help="single: the constrained blue-cube -> red-zone scene (env v3s; --tasks is ignored)")
     p.add_argument("--workers", type=int, default=max(1, os.cpu_count() - 2))
     a = p.parse_args()
     heldout = resolve_heldout(a.heldout)
-    tasks = select_tasks(a.tasks, heldout)
+    tasks = [SINGLE_TASK] if a.scene == "single" else select_tasks(a.tasks, heldout)
     os.makedirs(a.out, exist_ok=True)
     with get_context("spawn").Pool(min(a.workers, len(tasks))) as pool:
-        for task, kept, tried in pool.imap_unordered(_work, [(t, a.n_per_task, a.out) for t in tasks]):
+        for task, kept, tried in pool.imap_unordered(_work, [(t, a.n_per_task, a.out, a.scene) for t in tasks]):
             print(f"{task_name(task):14s} kept {kept}/{tried} expert episodes")
 
 

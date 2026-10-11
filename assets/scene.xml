@@ -51,6 +51,8 @@
     <body name="zone_yellow" mocap="true" pos="0.1 0.25 0.0005"><geom class="zone" material="m_yellow"/></body>
     <body name="zone_purple" mocap="true" pos="0.25 0.25 0.0005"><geom class="zone" material="m_purple"/></body>
     <body name="zone_orange" mocap="true" pos="0.4 0.25 0.0005"><geom class="zone" material="m_orange"/></body>
+    <!-- red zone: only in the single-object scene (EnvConfig.scene "single"); parked below the table otherwise -->
+    <body name="zone_red" mocap="true" pos="0.25 0.1 -0.5"><geom class="zone" material="m_red"/></body>
 
     <body name="cube_red" pos="0.1 0.1 0.02"><freejoint name="cube_red"/><geom class="cube" material="m_red"/></body>
     <body name="cube_green" pos="0.25 0.1 0.02"><freejoint name="cube_green"/><geom class="cube" material="m_green"/></body>

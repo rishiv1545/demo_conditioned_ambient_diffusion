@@ -2,7 +2,8 @@
 
     python scripts/click_layout.py data/raw_phone/<session> [--redo] [--clips red-yellow_01.mp4 ...]
 
-Order: objects red, green, blue (your stand-ins), then zones yellow, purple, orange. Click the CENTER OF THE TOP
+Order: objects red, green, blue (your stand-ins), then zones yellow, purple, orange; single-object sessions
+("scene": "single" in session.json): the blue object, then the red zone. Click the CENTER OF THE TOP
 of each object and the center of each zone. Object clicks are parallax-corrected using height_cm from
 session.json. Saves <clip>.layout.json next to the clip; process_phone.py then uses it instead of color detection.
 """
@@ -18,7 +19,7 @@ from human.calibrate import (camera_ground_xy, load_session, read_video, start_h
                              warp_topdown)
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import parallax_correct  # noqa: E402
-from human.objects import ORDER, layout_json_path, list_clips, parse_clip, save_layout_json, session_specs  # noqa: E402
+from human.objects import layout_json_path, list_clips, parse_clip, save_layout_json, session_order, session_specs  # noqa: E402
 
 PPM = 1600
 
@@ -43,7 +44,8 @@ def main():
     a = p.parse_args()
     s = load_session(a.session)
     specs = session_specs(s)
-    labels = {n: specs[n]["label"] for n in ORDER}
+    order = session_order(s)
+    labels = {n: specs[n]["label"] for n in order}
     clips = a.clips or list_clips(a.session)
     todo = [c for c in clips if a.redo or not os.path.exists(layout_json_path(a.session, c))]
     print(f"{len(todo)} clips to click ({len(clips) - len(todo)} already done)")
@@ -51,7 +53,7 @@ def main():
         frame0, H0 = start_homography(os.path.join(a.session, clip), s["marker_xy"])
         top, A = warp_topdown(frame0, H0, ppm=PPM)
         task = parse_clip(clip)
-        clicks, status = collect_clicks(top, ORDER, title=f"layout {i + 1}/{len(todo)}: {clip}", labels=labels,
+        clicks, status = collect_clicks(top, order, title=f"layout {i + 1}/{len(todo)}: {clip}", labels=labels,
                                         hint=f"task {task}; click top-center of objects, center of zones")
         if status == "quit":
             print("quit; progress so far is saved")
@@ -60,7 +62,7 @@ def main():
             print(f"{clip}: skipped")
             continue
         xy = clicks_to_table(clicks, A, specs, camera_ground_xy(H0, frame0.shape), s["camera_height"])
-        save_layout_json(layout_json_path(a.session, clip), xy, {"clip": clip, "source": "manual_click"})
+        save_layout_json(layout_json_path(a.session, clip), xy, {"clip": clip, "source": "manual_click"}, order)
         print(f"{clip}: saved")
 
 

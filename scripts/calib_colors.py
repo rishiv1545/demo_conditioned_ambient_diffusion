@@ -3,7 +3,7 @@
     python scripts/calib_colors.py data/raw_phone/<session> [--clip red-yellow_01.mp4] [--check_all]
 
 Click order: the 3 objects (red, green, blue = your stand-ins as labeled in session.json), then the 3 zones
-(yellow, purple, orange). Click on a well-lit, uniformly colored part of each item.
+(yellow, purple, orange); single-object sessions: the blue object, then the red zone. Click on a well-lit, uniformly colored part of each item.
 --check_all then runs color detection on the first frame of every clip and reports what it misses, so you can
 decide whether to use scripts/click_layout.py.
 """
@@ -21,8 +21,8 @@ from human.calibrate import (camera_ground_xy, load_session, read_video, start_h
                              warp_topdown)
 from human.clicker import collect_clicks  # noqa: E402
 from human.extract import detect_objects  # noqa: E402
-from human.objects import ORDER, hsv_ranges_from_samples, list_clips, sample_patch, session_specs  # noqa: E402
-from sim.env import CUBES  # noqa: E402
+from human.objects import (hsv_ranges_from_samples, item_name, list_clips, sample_patch, session_order,  # noqa: E402
+                           session_specs)
 
 PPM = 1600
 
@@ -33,16 +33,17 @@ def first_frame_topdown(path, marker_xy, n=15):
     return frame0, H0, top, A
 
 
-def update_session_json(sdir, ranges):
+def update_session_json(sdir, ranges, specs):
     path = os.path.join(sdir, "session.json")
     with open(path) as f:
         raw = json.load(f)
-    for key, names in (("objects", list(CUBES)), ("zones", [n for n in ORDER if n not in CUBES])):
+    for key, kind in (("objects", "object"), ("zones", "zone")):
         entries = {e["name"]: e for e in raw.get(key, [])}
         raw[key] = []
-        for n in names:
+        for k in (k for k in specs if specs[k]["kind"] == kind):
+            n = item_name(k)
             e = entries.get(n, {"name": n, "label": n})
-            e["hsv"] = [[list(map(int, lo)), list(map(int, hi))] for lo, hi in ranges[n]]
+            e["hsv"] = [[list(map(int, lo)), list(map(int, hi))] for lo, hi in ranges[k]]
             raw[key].append(e)
     with open(path, "w") as f:
         json.dump(raw, f, indent=2)
@@ -62,16 +63,17 @@ def main():
     clip = a.clip or clips[0]
     frame, H, top, A = first_frame_topdown(os.path.join(a.session, clip), s["marker_xy"])
     specs = session_specs(s)
-    labels = {n: specs[n]["label"] for n in ORDER}
-    clicks, status = collect_clicks(top, ORDER, title=f"colors: {clip}", labels=labels,
+    order = session_order(s)
+    labels = {n: specs[n]["label"] for n in order}
+    clicks, status = collect_clicks(top, order, title=f"colors: {clip}", labels=labels,
                                     hint="click a uniformly colored spot on each item")
     if status != "ok":
         sys.exit(f"aborted ({status}); session.json unchanged")
     hsv = cv2.cvtColor(cv2.GaussianBlur(top, (5, 5), 0), cv2.COLOR_BGR2HSV)
-    ranges = {n: hsv_ranges_from_samples(sample_patch(hsv, clicks[n], a.radius)) for n in ORDER}
-    for n in ORDER:
+    ranges = {n: hsv_ranges_from_samples(sample_patch(hsv, clicks[n], a.radius)) for n in order}
+    for n in order:
         print(f"{n:7s} ({labels[n]}): {ranges[n]}")
-    path = update_session_json(a.session, ranges)
+    path = update_session_json(a.session, ranges, specs)
     print("saved HSV ranges to", path)
 
     # verify on the calibration frame
@@ -82,7 +84,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     vis = top.copy()
     Ainv = np.linalg.inv(A)
-    for n in ORDER:
+    for n in order:
         click_xy = (Ainv @ [*clicks[n], 1])[:2]
         if det[n] is None:
             print(f"  {n:7s}: NOT detected")
@@ -100,7 +102,7 @@ def main():
             fr, Hc, _, _ = first_frame_topdown(os.path.join(a.session, c), s["marker_xy"])
             d = detect_objects(fr, Hc, specs, camera_h=s["camera_height"], cam_xy=camera_ground_xy(Hc, fr.shape),
                                exclude_xy=s["marker_xy"])
-            miss = [n for n in ORDER if d[n] is None]
+            miss = [n for n in order if d[n] is None]
             bad += bool(miss)
             print(f"{c:22s} {'ok' if not miss else 'missing ' + ','.join(miss)}")
         print(f"{len(clips) - bad}/{len(clips)} clips fully detected; use scripts/click_layout.py for the rest")

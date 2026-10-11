@@ -21,12 +21,12 @@ from human.calibrate import load_session, read_video, video_homographies  # noqa
 from human.extract import (calib_hand_size, extract_clip, height_from_size, overlay_frame, track_hand,  # noqa: E402
                            plot_traj)
 from human.correction import detect_correction  # noqa: E402
-from human.objects import (is_recovery_clip, layout_json_path, list_clips, load_layout_json, parse_clip,  # noqa: E402
-                           session_specs)
+from human.objects import (is_recovery_clip, is_single, layout_json_path, list_clips, load_layout_json,  # noqa: E402
+                           parse_clip, session_order, session_specs)
 from human.camera_match import apply_camera, estimate_phone_camera  # noqa: E402
 from human.replay import replay, save_human_episode  # noqa: E402
 from human.retarget import RetargetConfig, retarget  # noqa: E402
-from sim.env import CUBES, ZONES, PickPlaceEnv, env_cfg_dict, parse_task, task_name  # noqa: E402
+from sim.env import CUBES, ZONES, EnvConfig, PickPlaceEnv, env_cfg_dict, parse_task, task_name  # noqa: E402
 
 
 
@@ -69,10 +69,14 @@ def calibrate_session(sdir, s, out, fit_camera_height=True):
     return cal
 
 
-def layout_from_objects(objs):
-    if any(objs.get(c) is None for c in CUBES + ZONES):
+def layout_from_objects(objs, env):
+    if env.cfg.scene == "single":   # the clicked/detected blue object and red zone; the rest parked
+        if objs.get("blue") is None or objs.get("red_zone") is None:
+            return None
+        return env.single_layout(objs["blue"], objs["red_zone"])
+    if any(objs.get(c) is None for c in CUBES + ZONES[:3]):
         return None
-    return {"cubes": np.stack([objs[c] for c in CUBES]), "zones": np.stack([objs[z] for z in ZONES])}
+    return {"cubes": np.stack([objs[c] for c in CUBES]), "zones": np.stack([objs[z] for z in ZONES[:3]])}
 
 
 def track_cache_path(cache_dir, session_dir, clip):
@@ -151,7 +155,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     s = load_session(a.session)
     cal = calibrate_session(a.session, s, out, bool(a.fit_camera_height))
-    env = PickPlaceEnv()
+    env = PickPlaceEnv(EnvConfig(scene="single") if is_single(s) else None)
     # sim camera matching the phone's viewpoint, from the markers in the (table) calibration clip
     # from this session's own footage (its table clip if it has one, else the demo clips), so a session that reuses
     # another's calibration (calib_from) still gets its own camera pose; for sessions 1 and 3 the two agree
@@ -210,8 +214,8 @@ def main():
                               rest_closed=env.cfg.start_gripper_closed, lm_px=tc["lm_px"])
             ex["xy"] = ex["xy"] + pinch_off
             plot_traj(ex, os.path.join(out, f"{name}_traj.png"), title=clip)
-            manual = load_layout_json(layout_json_path(a.session, clip))
-            lay = layout_from_objects(manual if manual is not None else ex["objects"])
+            manual = load_layout_json(layout_json_path(a.session, clip), session_order(s))
+            lay = layout_from_objects(manual if manual is not None else ex["objects"], env)
             row["layout_source"] = "manual_click" if manual is not None else "color"
             tracked = float(ex["tracked"].mean())
             if lay is None:
