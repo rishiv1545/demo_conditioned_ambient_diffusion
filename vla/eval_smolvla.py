@@ -22,7 +22,7 @@ import torch  # noqa: E402
 
 from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
 from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_config,  # noqa: E402
-                     instruction, resolve_heldout, task_name)
+                     instruction, parse_task, resolve_heldout, task_name)
 
 
 def to_batch(envs, tasks, dev, cams, size):
@@ -116,7 +116,7 @@ def main():
     p.add_argument("--run", required=True, help="run dir with run.json and step_* checkpoints")
     p.add_argument("--step", default="latest", help="checkpoint step, 'latest', or 'base' (no fine-tuning)")
     p.add_argument("--k", type=int, default=20, help="episodes per task (20 intermediate, 50 final)")
-    p.add_argument("--tasks", default="all", help="all | seen | heldout")
+    p.add_argument("--tasks", default="all", help="all | seen | heldout | comma list of task names (blue-orange)")
     p.add_argument("--heldout", default=None, help="default: the split stored with the training data")
     p.add_argument("--n_action_steps", type=int, default=10, help="actions executed per 50-step chunk")
     p.add_argument("--batch_envs", type=int, default=18)
@@ -146,7 +146,8 @@ def main():
         step = max(cks) if a.step == "latest" else int(a.step)
         load_trainable(policy, cks[step])
     policy.eval()
-    tasks = {"all": ALL_TASKS, "seen": [t for t in ALL_TASKS if t not in heldout], "heldout": heldout}[a.tasks]
+    groups = {"all": ALL_TASKS, "seen": [t for t in ALL_TASKS if t not in heldout], "heldout": heldout}
+    tasks = groups.get(a.tasks) or [parse_task(n) for n in a.tasks.split(",")]
     base = (lambda t: ALL_TASKS.index(t) * 100_000) if a.train_seeds else \
         (lambda t: EVAL_SEED_BASE + ALL_TASKS.index(t) * 10_000)
     jobs = [(t, base(t) + k) for t in tasks for k in range(a.k)]

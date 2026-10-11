@@ -327,6 +327,241 @@
         ]
       ],
       "_note": "control for P_only: the same recipe on the same number of clean sim blue episodes per task (11/13/14)"
+    },
+    "T1_sim_5": {
+      "data": [
+        "sim_bo_320?per_task=5"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 5 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_10": {
+      "data": [
+        "sim_bo_320?per_task=10"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 10 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_15": {
+      "data": [
+        "sim_bo_320?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 15 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_20": {
+      "data": [
+        "sim_bo_320?per_task=20"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 20 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_30": {
+      "data": [
+        "sim_bo_320?per_task=30"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 30 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_40": {
+      "data": [
+        "sim_bo_320?per_task=40"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 40 clean sim demos (first n of sim_bo_320: nested sets); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_60": {
+      "data": [
+        "sim_bo_320?per_task=60"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 60 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_80": {
+      "data": [
+        "sim_bo_320?per_task=80"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 80 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_120": {
+      "data": [
+        "sim_bo_320?per_task=120"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 120 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_160": {
+      "data": [
+        "sim_bo_320?per_task=160"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 160 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_240": {
+      "data": [
+        "sim_bo_320?per_task=240"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 240 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_sim_320": {
+      "data": [
+        "sim_bo_320?per_task=320"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 320 clean sim demos (first n of sim_bo_320: nested sets); cosine over 15000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
+    },
+    "T1_phone_11": {
+      "data": [
+        "phone_v2?success=1&per_task=blue-orange:99",
+        "phone_v3_blue?success=1&per_task=blue-orange:99"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_bo_zn",
+          "--tasks blue-orange --noise_scale 0"
+        ]
+      ],
+      "_note": "single task blue-orange from smolvla_base on 11 successful blue-orange phone replays (sessions 3+4: 6+5); cosine over 10000 steps; zero-noise eval (20 episodes) at the midpoint and the end"
     }
   }
 }
