@@ -365,3 +365,9 @@ Probe blue acc by step (2.5k..15k): 0.31 0.22 0.12 0.19 0.31 0.22 (red 0.34 -> 0
 Eval 15k, zero noise: blue-orange 2% (k50; missed grasp 60%, wrong cube 38%); red/green 18% (k10/task).
 Read: 40 clean demos of the held-out colour at 30% of batches do not ground "blue" even with clean data; red/green
 grounding forms by 12.5-15k, blue stays at chance. Phone-data joint runs (J_naive etc.) not launched.
+
+## S1_sim_50 (2026-10-11): constrained single-object task (env v3s), 50 clean sim demos from smolvla_base
+Scene: only the blue cube (center uniform in x 0.28-0.38, y 0.07-0.17 m) and a fixed red zone (center 0.15, 0.25;
+10 x 10 cm). T1 recipe (15k cosine). Zero-noise eval, 20 episodes: 100% at 7.5k and 100% at 15k. (The grounding
+probe is meaningless here: the other cubes are parked.) Reference for the phone runs. Cost ~8.8 units incl. ~35 min
+of idle VM (the dcad wait loop hung at 19:37 and never reported the finish) and two VMs lost waiting for the mount.
