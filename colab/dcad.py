@@ -13,7 +13,8 @@ running its own job; status/wait/down act on the named session. Concurrent GPU s
 
 One manual step per new VM: `colab drivemount -s dcad` (interactive). Jobs run with nohup on the VM and keep all
 state on Drive (see colab/job.py), so the Mac can sleep or disconnect. A running VM bills (~5 units/h on an A100)
-until `down` or `wait --stop`, even when idle.
+until it is stopped, even when idle: every job stops its own VM 10 min after it ends (colab/self_stop.py; `run
+--keep_vm` to keep it), and `wait --stop` fetches the results and stops it sooner.
 """
 import argparse
 import json
@@ -32,8 +33,14 @@ DRIVE = "/content/drive/MyDrive/dcad"
 OUT = f"{DRIVE}/checkpoints/vla"
 
 
-def colab(*args, check=True, capture=True):
-    r = subprocess.run([COLAB, *args], stdin=subprocess.DEVNULL, capture_output=capture, text=True)
+def colab(*args, check=True, capture=True, timeout=1800):
+    """Every CLI call has a client-side timeout: on 2026-10-11 a `colab exec` never returned (the connection hung
+    before the code ran; the Mac did not sleep) and the watcher stood still for 80 min while the VM idled."""
+    try:
+        r = subprocess.run([COLAB, *args], stdin=subprocess.DEVNULL, capture_output=capture, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"colab {' '.join(args)}: no answer after {timeout} s")
     if check and r.returncode != 0:
         sys.exit(f"colab {' '.join(args)} failed:\n{(r.stdout or '') + (r.stderr or '')}")
     return r.stdout if capture else ""
@@ -46,7 +53,9 @@ def remote(code, session, timeout=120):
         f.write(code)
     try:
         r = subprocess.run([COLAB, "exec", "-s", session, "--timeout", str(timeout), "-f", f.name],
-                           stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout + 120)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"colab exec: no answer after {timeout + 120} s (connection hung)")
     finally:
         os.remove(f.name)
     err = re.sub(r"\x1b\[[0-9;]*m", "", r.stderr)
@@ -73,7 +82,10 @@ def pushed_head():
 def session_exists(session):
     """Whether the named session is running. Exits (never answers False) if the session list can't be read, e.g.
     a network blip: answering False would make `up` create a second, billed VM."""
-    r = subprocess.run([COLAB, "sessions"], stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    try:
+        r = subprocess.run([COLAB, "sessions"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        sys.exit("could not list Colab sessions (no answer after 180 s); not creating one")
     out = r.stdout
     if r.returncode != 0 or "Traceback" in r.stderr or "authorize" in (r.stdout + r.stderr):
         sys.exit(f"could not list Colab sessions (network or login problem); not creating one:\n{r.stderr[-500:]}")
@@ -161,6 +173,7 @@ def cmd_run(a):
     if not a.no_sync and cmd_up(a):
         return 2
     job_id = f"{a.session}-{time.strftime('%Y%m%d-%H%M%S')}"   # per-VM job ids: several sessions share Drive
+    endpoint = "" if a.keep_vm else setup_self_stop(a.session)
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else {}
     print(remote(f"""
 import subprocess, os, glob
@@ -171,14 +184,44 @@ busy = [p.split("/")[2] for p in glob.glob("/proc/[0-9]*/cmdline") if b"colab/jo
 assert not busy, f"a job is already running on this VM (pids {{busy}}); one GPU job at a time"
 log = open("/content/job_{job_id}.out", "w")
 p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}",
-                      "--eval_args", {a.eval_args!r}, "--eval_tag", {a.eval_tag!r}, "--eval_steps", {a.eval_steps!r}],
+                      "--eval_args", {a.eval_args!r}, "--eval_tag", {a.eval_tag!r}, "--eval_steps", {a.eval_steps!r},
+                      "--self_stop", {endpoint!r}],
                      cwd="{REMOTE}", stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
                      env={{**os.environ, **{env!r}}})
 print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
 """, a.session))
     with open(last_job_path(a.session), "w") as f:   # wait/status follow this job, not an older one whose file is newer
         f.write(job_id)
-    print(f"follow with: python colab/dcad.py status   |   python colab/dcad.py wait --stop")
+    print(("the VM stops itself 10 min after the job ends" if endpoint else "the VM keeps running after the job (--keep_vm)")
+          + "\nfollow with: python colab/dcad.py status   |   python colab/dcad.py wait --stop")
+
+
+def setup_self_stop(session):
+    """Let the job stop its own VM (colab/self_stop.py): the colab CLI in a separate venv on the VM and the CLI's
+    OAuth token on the VM's local disk (not Drive; it goes away with the VM). Returns the session's endpoint."""
+    sessions = json.load(open(os.path.expanduser("~/.config/colab-cli/sessions.json")))
+    endpoint = sessions[session]["endpoint"]
+    print(remote("""
+import os, subprocess
+if not os.path.exists("/content/colabcli/bin/colab"):
+    r = subprocess.run("python -m venv /content/colabcli && /content/colabcli/bin/pip install -q google-colab-cli==0.7.4",
+                       shell=True, capture_output=True, text=True)
+    print("colab cli venv:", "ok" if r.returncode == 0 else r.stdout[-1000:] + r.stderr[-1000:])
+os.makedirs("/root/.config/colab-cli", exist_ok=True)
+""", session, timeout=600).strip())
+    colab("upload", "-s", session, os.path.expanduser("~/.config/colab-cli/token.json"),
+          "/root/.config/colab-cli/token.json")
+    out = remote("""
+import os, subprocess
+os.chmod("/root/.config/colab-cli/token.json", 0o600)
+r = subprocess.run(["/content/colabcli/bin/python", "-c", "from colab_cli.common import state; state.client"],
+                   capture_output=True, text=True, timeout=120)
+print("self-stop ready" if r.returncode == 0 else "self-stop NOT ready: " + r.stderr[-800:])
+""", session).strip()
+    print(out)
+    if "self-stop ready" not in out:
+        sys.exit("could not set up the self-stop; fix it or run with --keep_vm")
+    return endpoint
 
 
 STATUS_CODE = f"""
@@ -256,6 +299,10 @@ def cmd_wait(a):
             out = status(a, 3)
             fails = 0
         except SystemExit as e:   # network blip: keep waiting; give up only after ~30 min of failures
+            if not session_exists(a.session):
+                print(time.strftime("%H:%M"), "the VM is gone (the job stopped it, or Colab reclaimed it); results "
+                      "are on Drive: fetch them on the next VM", flush=True)
+                return
             fails += 1
             print(time.strftime("%H:%M"), f"status failed ({fails}): {str(e)[:120]}", flush=True)
             if fails >= 6:
@@ -307,6 +354,7 @@ def main():
     s.add_argument("--eval_tag", default="", help="suffix for this job's eval dirs, e.g. _nas5")
     s.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check")
     s.add_argument("--no_sync", action="store_true", help="keep the VM's code as is (a follow-up job on a running VM)")
+    s.add_argument("--keep_vm", action="store_true", help="don't let the job stop its VM when it ends")
     s.set_defaults(f=cmd_run)
     s = sub.add_parser("status"); s.add_argument("--job"); s.add_argument("--lines", type=int, default=12)
     s.set_defaults(f=cmd_status)

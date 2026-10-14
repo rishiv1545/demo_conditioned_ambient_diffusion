@@ -727,6 +727,114 @@
         ]
       ],
       "_note": "S1_sim_50 on the real recording layout (env v3s with single_zone_xy 0.42, 0.27 and cube box 0.055-0.132 m, matching phone session 5): 50 clean sim demos (first 50 of sim_v3s2_200) from smolvla_base, T1 recipe, zero-noise eval 20 at 7.5k/15k. Reference for the phone runs"
+    },
+    "S1b_sim_15": {
+      "data": [
+        "sim_v3s2_200?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "sim reference for the phone runs: single-object task on the real recording layout, 15 clean sim demos (first 15 of sim_v3s2_200) from smolvla_base; cosine over 10k (T1 convention for n <= 30); zero-noise eval 20 at 5k/10k"
+    },
+    "S1b_sim_30": {
+      "data": [
+        "sim_v3s2_200?per_task=30"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "sim reference for the phone runs: single-object task on the real recording layout, 30 clean sim demos (first 30 of sim_v3s2_200) from smolvla_base; cosine over 10k (T1 convention for n <= 30); zero-noise eval 20 at 5k/10k"
+    },
+    "P5_naive_15": {
+      "data": [
+        "phone_s5?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first 15 clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 10k; zero-noise eval 20 at the midpoint and the end"
+    },
+    "P5_naive_30": {
+      "data": [
+        "phone_s5?per_task=30"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 5000",
+      "eval_k": 20,
+      "eval_steps": [
+        5000,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first 30 clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 10k; zero-noise eval 20 at the midpoint and the end"
+    },
+    "P5_naive_60": {
+      "data": [
+        "phone_s5?per_task=60"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first 60 clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 15k; zero-noise eval 20 at the midpoint and the end"
+    },
+    "P5_naive_all": {
+      "data": [
+        "phone_s5?per_task=999"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first all clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 15k; zero-noise eval 20 at the midpoint and the end"
     }
   }
 }

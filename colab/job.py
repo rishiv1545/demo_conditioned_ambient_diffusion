@@ -430,6 +430,10 @@ def main():
     p.add_argument("--eval_args", default="", help="extra eval_smolvla.py args, e.g. '--n_action_steps 5'")
     p.add_argument("--eval_tag", default="", help="suffix for eval dirs and the status file, e.g. _nas5")
     p.add_argument("--eval_steps", default="", help="comma list of checkpoints to evaluate/check (default: per run)")
+    p.add_argument("--self_stop", default="", help="session endpoint: stop this VM when the job ends (colab/self_stop.py)")
+    p.add_argument("--stop_grace_s", type=int, default=600,
+                   help="wait this long after the job ends before stopping (the Mac watcher fetches results and stops "
+                        "the VM itself in that time; this is the fallback when it doesn't)")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
     if any(st in stages for st in ("cache", "train", "probe", "check", "eval", "grasp")) and "data" not in stages:
@@ -444,17 +448,44 @@ def main():
     job = {"job": a.job_id, "runs": a.runs, "stages": stages, "pid": os.getpid(), "state": "running", "results": {},
            "eval_tag": a.eval_tag}
     write_json(job_path, job)
-    for r in a.runs:
-        job["current"] = r
-        write_json(job_path, job)
-        steps = [int(x) for x in a.eval_steps.split(",") if x] or None
-        s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
-        job["results"][r] = {"error": s["error"], "done": s["done"]}
+    try:
+        for r in a.runs:
+            job["current"] = r
+            write_json(job_path, job)
+            steps = [int(x) for x in a.eval_steps.split(",") if x] or None
+            s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
+            job["results"][r] = {"error": s["error"], "done": s["done"]}
+        job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"
+    except BaseException as e:   # still stop the VM below
+        job["state"] = "failed"
+        job["error"] = repr(e)
     job["current"] = None
-    job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"
+    if a.self_stop:
+        job["self_stop_at"] = time.time() + a.stop_grace_s
     write_json(job_path, job)
-    print(json.dumps(job, indent=2))
+    print(json.dumps(job, indent=2), flush=True)
+    if a.self_stop:
+        stop_vm(a.self_stop, a.stop_grace_s)
     sys.exit(1 if job["state"] == "failed" else 0)
+
+
+def stop_vm(endpoint, grace_s):
+    """After grace_s, flush Drive (big files upload in the background; stopping right after a save loses them) and
+    unassign this VM. A watcher that already stopped the VM makes this moot."""
+    print(f"stopping this VM in {grace_s} s", flush=True)
+    time.sleep(grace_s)
+    try:   # in a subprocess with a timeout: it may hang outside the kernel
+        r = subprocess.run([sys.executable, "-c", "from google.colab import drive; drive.flush_and_unmount()"],
+                           capture_output=True, text=True, timeout=900)
+        assert r.returncode == 0, r.stderr[-500:]
+        print("drive flushed", flush=True)
+    except Exception as e:   # sync and give the Drive daemon time to upload
+        print(f"flush_and_unmount failed ({e!r}); sync + 120 s", flush=True)
+        subprocess.run("sync", shell=True)
+        time.sleep(120)
+    r = subprocess.run(["/content/colabcli/bin/python", "colab/self_stop.py", endpoint], capture_output=True, text=True,
+                       timeout=600)
+    print(r.stdout, r.stderr[-2000:], flush=True)
 
 
 if __name__ == "__main__":
