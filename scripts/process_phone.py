@@ -148,6 +148,10 @@ def main():
     p.add_argument("--approach_clear", type=float, default=0.05,
                    help="approach the grasp from this high above, descend vertically; rise as high after release "
                         "(0 = follow the hand path exactly)")
+    p.add_argument("--carry_lift", type=float, default=0.0,
+                   help="> 0: while holding, stay this far above the contact heights away from them (thin objects)")
+    p.add_argument("--retreat_keep_radius", type=float, default=0.0,
+                   help="> 0: after the release, keep the retreat height within this distance of the release point")
     p.add_argument("--workers", type=int, default=4, help="parallel hand tracking (each holds one clip in RAM)")
     a = p.parse_args()
     sname = os.path.basename(os.path.normpath(a.session))
@@ -253,7 +257,8 @@ def main():
             z_off = a.z_offset - (specs[CUBES[task[0]]]["height_m"] / 2 - 0.02)
             h_obj = specs[CUBES[task[0]]]["height_m"]
             ee, g, tt = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None,
-                                                   dwell_s=a.dwell_s, approach_clear=a.approach_clear),
+                                                   dwell_s=a.dwell_s, approach_clear=a.approach_clear,
+                                                   carry_lift=a.carry_lift, retreat_keep_radius=a.retreat_keep_radius),
                              t_corr=corr["t_corr"] if corr else None)
             mask = (np.asarray(tt) >= corr["t_corr"]).astype(np.float32) if corr else None
             render = render_pair if ci < a.side_by_side else None
@@ -265,6 +270,7 @@ def main():
             meta = {"clip": clip, "session": sname, "fps": fps, "tracked_frac": tracked,
                     "human_completed": human_done, "long_gaps": int((~ex["valid"]).sum()),
                     "z_offset": z_off, "layout_source": row["layout_source"], "approach_clear": a.approach_clear,
+                    "carry_lift": a.carry_lift, "retreat_keep_radius": a.retreat_keep_radius,
                     "env_cfg": env_cfg_dict(env.cfg), "grip_info": ex["grip_info"]}
             if corr:
                 meta["recovery"] = dict(corr, masked_steps=int((mask == 0).sum()), steps=len(mask))

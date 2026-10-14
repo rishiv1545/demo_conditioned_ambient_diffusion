@@ -709,6 +709,24 @@
         ]
       ],
       "_note": "constrained single-object task (env v3s: only the blue cube, fixed red zone, cube in a 10x10 cm box) from smolvla_base on 100 clean sim demos (first n of sim_v3s_200); T1 recipe (cosine over 15k); zero-noise eval (20 episodes) at the midpoint and the end. Reference for the phone runs"
+    },
+    "S1b_sim_50": {
+      "data": [
+        "sim_v3s2_200?per_task=50"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 15000 --lr_schedule cosine --warmup 500 --save_every 7500",
+      "eval_k": 20,
+      "eval_steps": [
+        7500,
+        15000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ]
+      ],
+      "_note": "S1_sim_50 on the real recording layout (env v3s with single_zone_xy 0.42, 0.27 and cube box 0.055-0.132 m, matching phone session 5): 50 clean sim demos (first 50 of sim_v3s2_200) from smolvla_base, T1 recipe, zero-noise eval 20 at 7.5k/15k. Reference for the phone runs"
     }
   }
 }

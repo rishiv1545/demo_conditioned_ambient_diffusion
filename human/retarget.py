@@ -18,6 +18,13 @@ class RetargetConfig:
     approach_clear: float = 0.0    # > 0: approach the grasp point from this high above it (gripper open), descend
     #                                vertically, and rise as high after the release before moving on (0 = off)
     approach_radius: float = 0.06  # the approach/retreat rule applies within this xy distance of the contact
+    # Thin real objects vs the 4 cm sim cube (phone session 5, a 1.6 cm lid): the hand carries the lid low and
+    # passes low over it after the release, which drives the held cube into the table (it slips out) and sweeps
+    # the placed cube out of the zone. 0 = off (sessions 1-4 were processed without these).
+    carry_lift: float = 0.0        # > 0: while holding, away from the grasp and release points (approach_radius),
+    #                                stay at least this far above the higher of the two contact heights
+    retreat_keep_radius: float = 0.0  # > 0: after the release, stay at the retreat height (release + approach_clear)
+    #                                   while within this xy distance of the release point
     hz: float = 10.0
     ee_bounds: tuple = ((-0.05, 0.55), (-0.08, 0.42), (0.008, 0.40))
 
@@ -57,6 +64,9 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig(), t_corr=None):
     if cfg.approach_clear > 0:
         k_corr = None if t_corr is None else int(np.searchsorted(t, t_corr))
         ee, g = approach_from_above(ee, g, cfg.approach_clear, cfg.approach_radius, keep_until=k_corr)
+    if cfg.carry_lift > 0 or cfg.retreat_keep_radius > 0:
+        ee = keep_clear(ee, g, cfg.carry_lift, cfg.approach_radius, cfg.retreat_keep_radius,
+                        cfg.approach_clear)
     lo = np.array([b[0] for b in cfg.ee_bounds])
     hi = np.array([b[1] for b in cfg.ee_bounds])
     ee = np.clip(ee, lo, hi)
@@ -124,6 +134,38 @@ def approach_from_above(ee, g, clear, radius, keep_until=None):
         ee[to + m1 + 1:tr + 1, 2] = np.maximum(zr + v * (ee[tr, 2] - zr), ee[to + m1 + 1:tr + 1, 2])
         g[to:tr] = 0.0                            # stay open while clearing the cube
     return ee, g
+
+
+def keep_clear(ee, g, carry_lift, radius, keep_radius, clear):
+    """Height floors for a sim cube taller than the real object (see RetargetConfig.carry_lift). Between the grasp
+    and the release, outside `radius` of both contact points, z >= max(grasp z, release z) + carry_lift. After the
+    release, within keep_radius of the release point, z >= release z + clear. Returns a modified copy."""
+    ee = ee.copy()
+    closed = g > 0.5
+    opened = np.flatnonzero(~closed)
+    if not len(opened):
+        return ee
+    tc = next((k for k in range(opened[0] + 1, len(g)) if closed[k] and not closed[k - 1]), None)
+    if tc is None:
+        return ee
+    to = next((k for k in range(tc + 1, len(g)) if not closed[k] and closed[k - 1]), None)
+    end = len(g) if to is None else to
+    p = ee[tc].copy()
+    q = ee[to].copy() if to is not None else p
+    if carry_lift > 0:
+        k = np.arange(tc, end)
+        away = ((np.linalg.norm(ee[k, :2] - p[:2], axis=1) > radius) &
+                (np.linalg.norm(ee[k, :2] - q[:2], axis=1) > radius))
+        ee[k[away], 2] = np.maximum(ee[k[away], 2], max(p[2], q[2]) + carry_lift)
+    if keep_radius > 0 and to is not None:
+        k = np.arange(to + 1, len(g))
+        near = np.linalg.norm(ee[k, :2] - q[:2], axis=1) < keep_radius
+        # from the first step that rises above the release point (the vertical part of the retreat) on
+        rise = np.flatnonzero(ee[k, 2] >= q[2] + 0.5 * clear)
+        if len(rise):
+            sel = k[near & (k >= k[rise[0]])]
+            ee[sel, 2] = np.maximum(ee[sel, 2], q[2] + clear)
+    return ee
 
 
 def add_dwell(ee, g, n, t=None):

@@ -103,12 +103,15 @@ class EnvConfig:
     start_gripper_closed: bool = True
     release_dist: float = 0.045                 # "released": fingertip center this far from the cube center
     # v3s (2026-10-11), the constrained single-object task: only the blue cube and a red zone are on the table.
-    # The zone is fixed; the cube starts uniformly in a 10 x 10 cm square clear of the zone (cube edge >= 5.5 cm
-    # from the zone edge). The other cubes float below the table (gravity-compensated), the other zones are parked
+    # The zone is fixed; the cube starts uniformly in a square clear of the zone. The other cubes float below the table (gravity-compensated), the other zones are parked
     # below it; layouts keep all 3 cubes and 4 zones (parked ones at PARK_XY), so obs has 21 values.
     scene: str = "multi"                        # "multi" (3 cubes, 3 zones) | "single"
-    single_zone_xy: tuple = (0.15, 0.25)
-    single_cube_box: tuple = (0.28, 0.38, 0.07, 0.17)   # xmin, xmax, ymin, ymax of the cube center
+    # Layout matching the real recording setup (phone session 5, 2026-10-14): the red patch detected at
+    # (0.421, 0.273) in all clips; the blue start box is 5 x 5 in with its near-left corner at the far-right corner
+    # of the near-left marker (3.0-15.7 cm), and the 5 cm lid's center stays 2.5 cm inside it. The first layout
+    # (zone 0.15, 0.25; cube box 0.28-0.38 x 0.07-0.17; sim_v3s_200, S1_sim_50) is still rebuilt from stored env_cfg.
+    single_zone_xy: tuple = (0.42, 0.27)
+    single_cube_box: tuple = (0.055, 0.132, 0.055, 0.132)   # xmin, xmax, ymin, ymax of the cube center
 
 
 LEGACY_V1 = dict(gripper_yaw_deg=0.0, start_gripper_closed=False)

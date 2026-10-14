@@ -371,3 +371,14 @@ Scene: only the blue cube (center uniform in x 0.28-0.38, y 0.07-0.17 m) and a f
 10 x 10 cm). T1 recipe (15k cosine). Zero-noise eval, 20 episodes: 100% at 7.5k and 100% at 15k. (The grounding
 probe is meaningless here: the other cubes are parked.) Reference for the phone runs. Cost ~8.8 units incl. ~35 min
 of idle VM (the dcad wait loop hung at 19:37 and never reported the finish) and two VMs lost waiting for the mount.
+
+## Phone session 5 (2026-10-14): single-object task, first 6 clips
+Real layout differs from the first sim layout: red patch at (0.421, 0.273), blue start box 3.0-15.7 cm in x and y
+(near-left corner). Sim default moved to match (single_zone_xy 0.42, 0.27; lid-center box 0.055-0.132); new data
+sim_v3s2_200, reference run S1b_sim_50. Camera from markers 43.2 cm (same mount as sessions 3-4).
+Replays: 3/6 with the old retarget. Failures: the 4 cm sim cube vs the 1.6 cm lid. (a) After the release the hand
+goes home low over the lid; the zone is on the path home, so the fingers swept the placed cube out of the zone
+(01, 04). (b) The lid is carried low; following that drove the held cube into the table and it slipped (05).
+New retarget options --carry_lift 0.015 --retreat_keep_radius 0.10 (default off; sessions 1-4 unchanged): 5/6.
+The remaining failure (05) is a very fast carry (>10 cm per step): the arm lags and puts the cube down short.
+Process with: process_phone.py data/raw_phone/5 --carry_lift 0.015 --retreat_keep_radius 0.10
