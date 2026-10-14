@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from human.velocity_norm import normalize
+
 
 @dataclass
 class RetargetConfig:
@@ -25,6 +27,7 @@ class RetargetConfig:
     #                                stay at least this far above the higher of the two contact heights
     retreat_keep_radius: float = 0.0  # > 0: after the release, stay at the retreat height (release + approach_clear)
     #                                   while within this xy distance of the release point
+    vn: tuple = None               # velocity normalization (human/velocity_norm.py): (f, m, M) for this episode
     hz: float = 10.0
     ee_bounds: tuple = ((-0.05, 0.55), (-0.08, 0.42), (0.008, 0.40))
 
@@ -70,6 +73,8 @@ def retarget(ex, cfg: RetargetConfig = RetargetConfig(), t_corr=None):
     lo = np.array([b[0] for b in cfg.ee_bounds])
     hi = np.array([b[1] for b in cfg.ee_bounds])
     ee = np.clip(ee, lo, hi)
+    if cfg.vn is not None:   # re-time before the dwells are inserted, so they stay exactly as they are
+        ee, g, t = normalize(ee, g, t, *cfg.vn, hz=cfg.hz)
     if cfg.dwell_s > 0:
         ee, g, t = add_dwell(ee, g, int(round(cfg.dwell_s * cfg.hz)), t)
     return ee, g, t   # t: source (phone) time of each step; repeated during dwells

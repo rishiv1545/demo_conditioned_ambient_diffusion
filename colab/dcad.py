@@ -180,7 +180,20 @@ import subprocess, os, glob
 def argv(p):
     try: return open(p, "rb").read().split(b"\\0")
     except OSError: return []
-busy = [p.split("/")[2] for p in glob.glob("/proc/[0-9]*/cmdline") if b"colab/job.py" in argv(p)[1:2]]
+import json, signal
+busy = []
+for p in glob.glob("/proc/[0-9]*/cmdline"):
+    av = argv(p)
+    if b"colab/job.py" not in av[1:2]:
+        continue
+    pid = int(p.split("/")[2])
+    jid = av[av.index(b"--job_id") + 1].decode() if b"--job_id" in av else None
+    jp = f"{DRIVE}/jobs/{{jid}}.json"
+    if jid and os.path.exists(jp) and json.load(open(jp))["state"] != "running":
+        os.kill(pid, signal.SIGKILL)   # a finished job waiting to stop the VM: cancel that, the VM is reused
+        print("cancelled the pending self-stop of", jid)
+    else:
+        busy.append(pid)
 assert not busy, f"a job is already running on this VM (pids {{busy}}); one GPU job at a time"
 log = open("/content/job_{job_id}.out", "w")
 p = subprocess.Popen(["nohup", "python", "colab/job.py", *{a.runs!r}, "--stages", {a.stages!r}, "--job_id", "{job_id}",

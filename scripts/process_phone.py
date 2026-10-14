@@ -152,6 +152,8 @@ def main():
                    help="> 0: while holding, stay this far above the contact heights away from them (thin objects)")
     p.add_argument("--retreat_keep_radius", type=float, default=0.0,
                    help="> 0: after the release, keep the retreat height within this distance of the release point")
+    p.add_argument("--vn", default=None,
+                   help="velocity normalization stats (scripts/vn_stats.py): re-time each clip before the replay")
     p.add_argument("--workers", type=int, default=4, help="parallel hand tracking (each holds one clip in RAM)")
     a = p.parse_args()
     sname = os.path.basename(os.path.normpath(a.session))
@@ -195,6 +197,9 @@ def main():
     pinch_off = np.array(s.get("pinch_offset_cm", [0.0, 0.0])) / 100.0
     if np.any(pinch_off):
         print(f"pinch offset correction: {pinch_off * 100} cm (session.json pinch_offset_cm)")
+    vn = json.load(open(a.vn)) if a.vn else None
+    if vn:
+        print(f"velocity normalization: m {vn['m']:.3f} m/s, M {vn['M']:.3f} m/s")
     cache_dir = os.path.join(out, "track_cache")
     os.makedirs(cache_dir, exist_ok=True)
     jobs = [(a.session, c, s["marker_xy"], s.get("hand", "right"), track_cache_path(cache_dir, a.session, c))
@@ -258,7 +263,8 @@ def main():
             h_obj = specs[CUBES[task[0]]]["height_m"]
             ee, g, tt = retarget(ex, RetargetConfig(z_offset=z_off, contact_z=h_obj / 2 if a.contact_z else None,
                                                    dwell_s=a.dwell_s, approach_clear=a.approach_clear,
-                                                   carry_lift=a.carry_lift, retreat_keep_radius=a.retreat_keep_radius),
+                                                   carry_lift=a.carry_lift, retreat_keep_radius=a.retreat_keep_radius,
+                                                   vn=(vn["f"][name], vn["m"], vn["M"]) if vn else None),
                              t_corr=corr["t_corr"] if corr else None)
             mask = (np.asarray(tt) >= corr["t_corr"]).astype(np.float32) if corr else None
             render = render_pair if ci < a.side_by_side else None
@@ -271,6 +277,7 @@ def main():
                     "human_completed": human_done, "long_gaps": int((~ex["valid"]).sum()),
                     "z_offset": z_off, "layout_source": row["layout_source"], "approach_clear": a.approach_clear,
                     "carry_lift": a.carry_lift, "retreat_keep_radius": a.retreat_keep_radius,
+                    "vn": {"f": vn["f"][name], "m": vn["m"], "M": vn["M"]} if vn else None,
                     "env_cfg": env_cfg_dict(env.cfg), "grip_info": ex["grip_info"]}
             if corr:
                 meta["recovery"] = dict(corr, masked_steps=int((mask == 0).sum()), steps=len(mask))

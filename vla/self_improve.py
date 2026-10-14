@@ -57,6 +57,7 @@ def main():
     p.add_argument("--train_args", default="--unfreeze_vlm 1 --vlm_lr 1e-5",
                    help="the run's other train args (VLM, episode_info, ambient, quality tag), kept every round")
     p.add_argument("--eval_k", type=int, default=20)
+    p.add_argument("--eval_tag", default="_zn", help="eval dir suffix (zero-noise eval of each round)")
     p.add_argument("--rollout_noise", type=float, default=1.0)
     a = p.parse_args()
     run = os.path.basename(os.path.normpath(a.run_dir))
@@ -98,7 +99,7 @@ def main():
            f"--resume_warmup {a.resume_warmup} --save_from {step} --save_every {a.steps_per_round} "
            f"--stats_from {a.run_dir} {a.train_args}")
         # 4. zero-noise eval
-        ed = f"{a.run_dir}/eval_step{end:06d}_k{a.eval_k}_bo_zn"
+        ed = f"{a.run_dir}/eval_step{end:06d}_k{a.eval_k}{a.eval_tag}"
         sh(f"python vla/eval_smolvla.py --run {a.run_dir} --step {end} --tasks {a.task} --k {a.eval_k} "
            f"--noise_scale 0 --out {ed} --device cuda")
         rec.update(to_step=end, eval=eval_summary(ed), minutes=round((time.time() - t0) / 60, 1))

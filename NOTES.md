@@ -382,3 +382,13 @@ goes home low over the lid; the zone is on the path home, so the fingers swept t
 New retarget options --carry_lift 0.015 --retreat_keep_radius 0.10 (default off; sessions 1-4 unchanged): 5/6.
 The remaining failure (05) is a very fast carry (>10 cm per step): the arm lags and puts the cube down short.
 Process with: process_phone.py data/raw_phone/5 --carry_lift 0.015 --retreat_keep_radius 0.10
+
+## Velocity normalization (2026-10-14), after Tutor Intelligence DF1 Sec. 4.2
+human/velocity_norm.py; process_phone.py --vn quality/vn_s5.json (stats: scripts/vn_stats.py). Re-times the retargeted
+path before the replay (after the approach rule, before the inserted dwells, so those are unchanged): stage 1 per-episode
+factor m / cruise (cruise = 30th pct of moving-frame speed, moving = >= 2 cm/s), clamped [0.75, 1.5]; stage 2 speed map
+identity below m, tanh compression toward M above (m = median cruise 0.103 m/s, M = 80th pct of stage-1 frame speeds
+0.378 m/s); cursor frame selection, rate 1 within 0.5 s of gripper switches, idle frames skipped except the last 2 s.
+Session 5 (100 clips): f clamped for 9 at 0.75 and 2 at 1.5. Replay success 92% -> 94% (021, 038 fail -> ok; none lost).
+Across episodes: cruise speed CV 0.19 -> 0.14 (std 0.021 -> 0.014 m/s), median moving speed CV 0.16 -> 0.12, p95 speed
+mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.

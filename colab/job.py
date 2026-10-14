@@ -316,6 +316,43 @@ def init_from(src_name, run_dir, log):
     log.write(f"initialized from {src_name} step {step}\n")
 
 
+def final_success(run_name, tag):
+    """Success of a run's zero-noise eval at its latest evaluated checkpoint (None: no eval yet)."""
+    eds = sorted(glob.glob(f"{OUT}/{run_name}/eval_step*{tag}/summary.json"))
+    if not eds:
+        return None
+    per = json.load(open(eds[-1]))["per_task"]
+    return sum(per.values()) / len(per)
+
+
+def resolve_self_improve_best(name, cfg, runs):
+    """cfg["self_improve_best"] = {"candidates": [run, ...], "tag": "_br_zn", ...}: self-improve the candidate with the
+    best final eval (ties: the earlier one) in a run dir of its own. Its latest checkpoint, loss.csv and run.json are
+    copied once; the data and the feature flags of its training (VLM, episode info, ambient, quality tag) carry over.
+    The choice is saved to <run dir>/self_improve_best.json."""
+    sb = cfg["self_improve_best"]
+    run_dir = f"{OUT}/{name}"
+    os.makedirs(run_dir, exist_ok=True)
+    path = f"{run_dir}/self_improve_best.json"
+    if os.path.exists(path):
+        best = json.load(open(path))["best"]
+    else:
+        scores = {c: final_success(c, sb.get("tag", "_br_zn")) for c in sb["candidates"]}
+        have = {c: v for c, v in scores.items() if v is not None}
+        assert have, f"{name}: none of {sb['candidates']} has an eval"
+        best = max(have, key=lambda c: (have[c], -sb["candidates"].index(c)))
+        with open(f"{run_dir}/job.log", "a") as log:
+            init_from(best, run_dir, log)
+        shutil.copy(f"{OUT}/{best}/run.json", f"{run_dir}/run.json")
+        write_json(path, {"best": best, "scores": scores})
+    src = runs[best]
+    flags = re.findall(r"--(?:unfreeze_vlm|vlm_lr|episode_info|ambient_per_episode|quality_tag|ambient_t_min) \S+",
+                       src.get("train", ""))
+    si = {k: v for k, v in sb.items() if k not in ("candidates", "tag")}
+    si["train_args"] = " ".join(flags)
+    return {**cfg, "data": src["data"], "self_improve": si, "_best": best}
+
+
 def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval_steps=None):
     run_dir = f"{OUT}/{name}"
     os.makedirs(run_dir, exist_ok=True)
@@ -388,6 +425,7 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                        f"{' '.join(shlex.quote(sp) for _, sp in specs)} --task {si.get('task', 'blue-orange')} "
                        f"--rounds {si.get('rounds', 3)} --n {si.get('n', 100)} "
                        f"--steps_per_round {si.get('steps_per_round', 3000)} --lr {si.get('lr', 5e-5)} "
+                       f"--eval_k {si.get('eval_k', 20)} --eval_tag {si.get('eval_tag', '_zn')} "
                        f"--train_args {shlex.quote(si.get('train_args', '--unfreeze_vlm 1 --vlm_lr 1e-5'))}", log)
                 elif st == "eval" and eval_k > 0:
                     if cfg.get("eval_steps") == "selected" and not eval_steps:   # early-stopping checkpoint
@@ -453,7 +491,10 @@ def main():
             job["current"] = r
             write_json(job_path, job)
             steps = [int(x) for x in a.eval_steps.split(",") if x] or None
-            s = run_one(r, reg["runs"][r], reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
+            cfg = reg["runs"][r]
+            if "self_improve_best" in cfg:
+                cfg = resolve_self_improve_best(r, cfg, reg["runs"])
+            s = run_one(r, cfg, reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
             job["results"][r] = {"error": s["error"], "done": s["done"]}
         job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"
     except BaseException as e:   # still stop the VM below
