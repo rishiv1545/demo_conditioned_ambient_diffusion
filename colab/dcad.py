@@ -197,16 +197,16 @@ print("started job {job_id} pid", p.pid, "runs", {a.runs!r})
 
 
 def setup_self_stop(session):
-    """Let the job stop its own VM (colab/self_stop.py): the colab CLI in a separate venv on the VM and the CLI's
+    """Let the job stop its own VM (colab/self_stop.py): the colab CLI in its own directory on the VM and the CLI's
     OAuth token on the VM's local disk (not Drive; it goes away with the VM). Returns the session's endpoint."""
     sessions = json.load(open(os.path.expanduser("~/.config/colab-cli/sessions.json")))
     endpoint = sessions[session]["endpoint"]
     print(remote("""
 import os, subprocess
-if not os.path.exists("/content/colabcli/bin/colab"):
-    r = subprocess.run("python -m venv /content/colabcli && /content/colabcli/bin/pip install -q google-colab-cli==0.7.4",
+if not os.path.exists("/content/colabcli/colab_cli"):   # own directory (no venv: Colab's python lacks ensurepip)
+    r = subprocess.run("pip install -q --target /content/colabcli google-colab-cli==0.7.4",
                        shell=True, capture_output=True, text=True)
-    print("colab cli venv:", "ok" if r.returncode == 0 else r.stdout[-1000:] + r.stderr[-1000:])
+    print("colab cli:", "ok" if r.returncode == 0 else r.stdout[-1000:] + r.stderr[-1000:])
 os.makedirs("/root/.config/colab-cli", exist_ok=True)
 """, session, timeout=600).strip())
     colab("upload", "-s", session, os.path.expanduser("~/.config/colab-cli/token.json"),
@@ -214,8 +214,8 @@ os.makedirs("/root/.config/colab-cli", exist_ok=True)
     out = remote("""
 import os, subprocess
 os.chmod("/root/.config/colab-cli/token.json", 0o600)
-r = subprocess.run(["/content/colabcli/bin/python", "-c", "from colab_cli.common import state; state.client"],
-                   capture_output=True, text=True, timeout=120)
+r = subprocess.run(["python", "-c", "from colab_cli.common import state; state.client"], capture_output=True, text=True,
+                   timeout=120, env={**os.environ, "PYTHONPATH": "/content/colabcli"})
 print("self-stop ready" if r.returncode == 0 else "self-stop NOT ready: " + r.stderr[-800:])
 """, session).strip()
     print(out)

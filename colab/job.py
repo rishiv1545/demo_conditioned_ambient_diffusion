@@ -483,8 +483,8 @@ def stop_vm(endpoint, grace_s):
         print(f"flush_and_unmount failed ({e!r}); sync + 120 s", flush=True)
         subprocess.run("sync", shell=True)
         time.sleep(120)
-    r = subprocess.run(["/content/colabcli/bin/python", "colab/self_stop.py", endpoint], capture_output=True, text=True,
-                       timeout=600)
+    r = subprocess.run([sys.executable, "colab/self_stop.py", endpoint], capture_output=True, text=True, timeout=600,
+                       env={**os.environ, "PYTHONPATH": "/content/colabcli"})
     print(r.stdout, r.stderr[-2000:], flush=True)
 
 
