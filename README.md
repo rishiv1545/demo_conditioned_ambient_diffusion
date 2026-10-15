@@ -13,9 +13,9 @@ In this controlled setup (one cube, one target zone, a fixed top-down phone, see
 100% at the midpoint checkpoint** (20 episodes each, zero-noise sampling). No robot or sim-expert demos are used.
 
 ![phone clip and trained policy](docs/figures/hero.gif)
-*Left: one of the 100 phone clips. Right: the policy trained on all 100 clips, in sim, on an evaluation layout.*
-
-<!-- HERO: docs/figures/hero.gif (phone clip | P5_naive_all step 15000 rollout) -->
+*Left: one of the 100 phone clips (real time). Right: the policy trained on all 100 clips (final checkpoint,
+zero-noise sampling) on an evaluation layout in sim, front camera (real time). The cube start differs between the
+two; the policy never saw this layout.*
 
 ### Success vs number of demos
 
