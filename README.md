@@ -98,7 +98,36 @@ layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 1
 (`scripts/paired_eval.py`).
 
 <!-- FRESH TABLE: python scripts/paired_eval.py -->
-*Running.*
+| checkpoint | episodes | success % | Wilson 95% CI |
+|---|---|---|---|
+| naive 5k | 200 | 79.0 | 73–84 |
+| naive 7.5k | – | *pending* | |
+| naive 10k | 200 | 64.5 | 58–71 |
+| ambient 7.5k | – | *pending* | |
+| ambient 10k | 200 | 86.5 | 81–91 |
+| quality 10k | 200 | 82.5 | 77–87 |
+| VN (naive) 10k | – | *pending* | |
+| self-improvement 13k | – | *pending* | |
+| naive@30 10k | – | *pending* | |
+| ambient@30 10k | – | *pending* | |
+
+| comparison (A vs B) | shared episodes | A % | B % | A only | B only | exact McNemar p |
+|---|---|---|---|---|---|---|
+| ambient 10k vs naive 10k | 200 | 86.5 | 64.5 | 60 | 16 | < 1e-4 |
+| ambient 10k vs naive 5k | 200 | 86.5 | 79.0 | 33 | 18 | 0.049 |
+| ambient 10k vs quality 10k | 200 | 86.5 | 82.5 | 27 | 19 | 0.3 |
+| naive 5k vs naive 10k | 200 | 79.0 | 64.5 | 46 | 17 | 0.00034 |
+| self-improvement 13k vs ambient 10k | *pending* | | | | | |
+| ambient@30 10k vs naive@30 10k | *pending* | | | | | |
+| VN (naive) 10k vs naive 10k | *pending* | | | | | |
+
+- **Naive declines late; ambient doesn't.** On fresh layouts naive falls from 79.0% (5k) to 64.5% (10k)
+  (46 vs 17 discordant, p = 0.0003). Ambient at 10k is 86.5% vs naive's 64.5% (60 vs 16, p = 4e-7).
+- **Ambient at 10k vs the best naive checkpoint (5k)**: 86.5% vs 79.0% (33 vs 18, p = 0.049). Suggestive, not
+  significant after a Holm correction over the four planned comparisons (adjusted p = 0.098).
+- **Ambient vs quality-tagged**: 86.5% vs 82.5% (27 vs 19, p = 0.30); no detectable difference.
+- The held-out numbers are 3–6 points below the 40-episode standard-layout ones for ambient and quality, and within
+  their intervals.
 <!-- /FRESH TABLE -->
 
 ## How we got here

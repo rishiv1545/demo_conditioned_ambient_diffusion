@@ -467,3 +467,9 @@ all runs even past Thursday noon.
 - P5_amb_30: 80 / 60 / 70 / 80 (k40, CI 65–90); validation 95 / 60 / 70 / 75. vs naive@30 82.5 on the same 40 seeds:
   amb-only 2, naive-only 3. No ambient gain at N=30 (naive@30 has no late decline: 45 -> 82.5).
 - P5_fresh (held-out eval) started 11:43 as job dcad-20261015-114327; watcher in outputs/colab_p5fresh.log.
+
+## 2026-10-15 13:15: held-out paired eval, 200-episode set (seed_base 7,000,000)
+
+naive 5k 79.0 (73–84), naive 10k 64.5 (58–71), ambient 10k 86.5 (81–91), quality 10k 82.5 (77–87).
+Exact McNemar: amb10k vs naive10k 60/16 p 3.9e-7; amb10k vs naive5k 33/18 p 0.049 (Holm 0.098 over the 4 planned);
+amb vs qual 27/19 p 0.30; naive 5k vs 10k 46/17 p 0.00034. outputs/p5_fresh_paired.json. 100-episode set running.
