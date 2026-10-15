@@ -2,6 +2,7 @@
 
     python scripts/make_figures.py --results          # README figures + tables -> docs/figures/, docs/results_tables.md
     python scripts/make_figures.py --single           # single-object task: demo-count curve (P5_naive_*, S1b_sim_*)
+    python scripts/make_figures.py --methods          # method comparison at 15 phone demos (P5_*_15, P5_SI_15)
     python scripts/make_figures.py --runs A B Bprime --out outputs/m3   # Phase 1 baselines (seen/held-out bars)
 
 --results reads outputs/ambient_sweep/<run>/summary.json (small policy; seeds as <run>_s<k>),
@@ -242,13 +243,59 @@ def single_task(out_fig="docs/figures"):
     print("\n".join(rows))
 
 
+METHODS_15 = [("naive", "P5_naive_15r", NAIVE), ("ambient", "P5_amb_15", AMB), ("quality-tagged", "P5_qual_15", "#8c5ac8"),
+              ("velocity-normalized (naive)", "P5_naive_15_vn", "#52514e")]
+STEPS_15 = [2500, 5000, 7500, 10000]
+
+
+def methods(out_fig="docs/figures"):
+    """Success vs training step for each method at 15 phone demos (fixed steps, standard eval seeds) + a table."""
+    fig, ax = plt.subplots(figsize=(5.6, 3.6), facecolor=SURF)
+    style(ax)
+    rows = ["| method | 2.5k | 5k | 7.5k | 10k (40 ep., 95% CI) | validation, 10k |", "|---|---|---|---|---|---|"]
+    for label, run, c in METHODS_15:
+        pts = {st: eval_point(run, st) for st in STEPS_15}
+        if not any(pts.values()):
+            rows.append(f"| {label} | – | – | – | pending | – |")
+            continue
+        xs = [st for st in STEPS_15 if pts[st]]
+        ax.plot([x / 1000 for x in xs], [pts[x][0] for x in xs], color=c, lw=2, marker="o", ms=5,
+                markeredgecolor=SURF, markeredgewidth=1.5, label=label)
+        val = eval_point(run, 10000, "_br_zn_val")
+        cell = lambda st: f"{pts[st][0]:.0f}" if pts[st] else "–"
+        end = pts[10000]
+        rows.append(f"| {label} | {cell(2500)} | {cell(5000)} | {cell(7500)} | "
+                    + (f"{end[0]:.1f} ({end[1]:.0f}–{end[2]:.0f})" if end else "–")
+                    + (f" | {val[0]:.1f} |" if val else " | – |"))
+    base = eval_point("P5_naive_15r", 5000)
+    if base:
+        rows.insert(2, f"| *baseline: naive, 5k checkpoint* | | {base[0]:.0f} | | | |")
+    si = json.load(open(f"{COLAB}/P5_SI_15/self_improve_best.json")) if os.path.exists(
+        f"{COLAB}/P5_SI_15/self_improve_best.json") else None
+    sp = eval_point("P5_SI_15", 13000)
+    rows.append(f"| self-improvement (1 round on {si['best'] if si else '?'}) | | | | "
+                + (f"{sp[0]:.1f} ({sp[1]:.0f}–{sp[2]:.0f}) at 13k" if sp else "pending") + " | |")
+    ax.set_ylim(0, 105)
+    ax.set_xticks([2.5, 5, 7.5, 10])
+    ax.set_xlabel("training step (thousands; cosine LR over 10k)", fontsize=8, color=INK2)
+    ax.set_ylabel("success % (20 episodes; 40 at 10k)", fontsize=8, color=INK2)
+    ax.set_title("15 phone demos: success during training", fontsize=10, color=INK, loc="left")
+    ax.legend(fontsize=7, frameon=False, loc="lower left", labelcolor=INK)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out_fig, "methods_15.png"), dpi=160, facecolor=SURF)
+    print("\n".join(rows))
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--runs", nargs="+", default=["A", "B", "Bprime"])
     p.add_argument("--out", default="outputs/m3")
     p.add_argument("--results", action="store_true", help="README figures + tables from the current result files")
     p.add_argument("--single", action="store_true", help="single-object task figures (SmolVLA, outputs/colab)")
+    p.add_argument("--methods", action="store_true", help="method comparison at 15 phone demos")
     a = p.parse_args()
+    if a.methods:
+        return methods()
     if a.single:
         return single_task()
     if a.results:
