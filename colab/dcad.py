@@ -262,7 +262,9 @@ for r in job["runs"]:
     s = json.load(open(sp)) if os.path.exists(sp) else {{}}
     if s.get("job") != job["job"]:
         print(f"-- {{r}}: not started"); continue
-    print(f"-- {{r}}: stage {{s['stage']}} done {{s['done']}} timings {{s['timings_s']}} error {{s['error']}}")
+    print(f"-- {{r}}: stage {{s['stage']}} done {{s['done']}} timings {{s.get('timings_s')}} error {{s['error']}}")
+    for it in s.get("items", []):   # evalsets: one line per finished checkpoint
+        print(f"   {{it['run']}} {{it['step']}} k{{it['k']}}: {{it.get('success', it.get('error'))}}")
     if os.path.exists(f"{{d}}/loss.csv"):
         rows = open(f"{{d}}/loss.csv").read().split()
         print("   loss.csv last:", rows[-1] if len(rows) > 1 else "(empty)")
