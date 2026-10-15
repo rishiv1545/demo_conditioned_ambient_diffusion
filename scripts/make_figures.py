@@ -1,6 +1,7 @@
 """Figures and tables from the result files.
 
     python scripts/make_figures.py --results          # README figures + tables -> docs/figures/, docs/results_tables.md
+    python scripts/make_figures.py --single           # single-object task: demo-count curve (P5_naive_*, S1b_sim_*)
     python scripts/make_figures.py --runs A B Bprime --out outputs/m3   # Phase 1 baselines (seen/held-out bars)
 
 --results reads outputs/ambient_sweep/<run>/summary.json (small policy; seeds as <run>_s<k>),
@@ -192,12 +193,64 @@ def results(out_fig="docs/figures", out_md="docs/results_tables.md"):
     print("wrote", out_fig, out_md)
 
 
+def eval_point(run, step, tag="_br_zn"):
+    """(success %, ci95 lo %, hi %) of a run's eval at step (largest k if several), or None."""
+    import glob
+    fs = sorted(glob.glob(f"{COLAB}/{run}/eval_step{step:06d}_k*{tag}/summary.json"),
+                key=lambda f: int(f.split("_k")[-1].split("_")[0]))
+    if not fs:
+        return None
+    h = json.load(open(fs[-1]))["heldout"]
+    return 100 * h["success"], 100 * h["ci95"][0], 100 * h["ci95"][1]
+
+
+def single_task(out_fig="docs/figures"):
+    """Success vs number of demos on the single-object task: phone replays vs clean sim demos, midpoint and end."""
+    PHONE, SIM = AMB, CLEAN
+    series = [("phone demos", PHONE, [(15, "P5_naive_15", 5000, 10000), (30, "P5_naive_30", 5000, 10000),
+                                      (60, "P5_naive_60", 7500, 15000), (100, "P5_naive_all", 7500, 15000)]),
+              ("clean sim demos", SIM, [(15, "S1b_sim_15", 5000, 10000), (30, "S1b_sim_30", 5000, 10000)])]
+    fig, ax = plt.subplots(figsize=(5.6, 3.6), facecolor=SURF)
+    style(ax)
+    rows = ["| demos | data | midpoint % | end % (95% CI) |", "|---|---|---|---|"]
+    for label, c, pts in series:
+        xs, mid, end, lo, hi = [], [], [], [], []
+        for n, run, sm, se in pts:
+            m, e = eval_point(run, sm), eval_point(run, se)
+            if e is None:
+                continue
+            xs.append(n); mid.append(m[0] if m else np.nan); end.append(e[0]); lo.append(e[1]); hi.append(e[2])
+            rows.append(f"| {n} | {label} | {m[0]:.0f} | {e[0]:.0f} ({e[1]:.0f}-{e[2]:.0f}) |")
+        xs, end = np.array(xs), np.array(end)
+        ax.errorbar(xs, end, yerr=[end - np.array(lo), np.array(hi) - end], color=c, lw=2, marker="o", ms=6,
+                    markeredgecolor=SURF, markeredgewidth=1.5, capsize=3, elinewidth=1, label=f"{label}, end of training (95% CI)")
+        ax.plot(xs * 1.06, mid, ls="none", marker="o", ms=5.5, markerfacecolor=SURF, markeredgecolor=c,
+                markeredgewidth=1.5, label=f"{label}, midpoint checkpoint")
+    ax.set_xscale("log")
+    ax.set_xlim(12, 125)
+    ax.set_xticks([15, 30, 60, 100])
+    ax.set_xticklabels(["15", "30", "60", "100"])
+    ax.minorticks_off()
+    ax.set_ylim(0, 105)
+    ax.set_xlabel("demos (single object, one task)", fontsize=8, color=INK2)
+    ax.set_ylabel("success % (20 episodes)", fontsize=8, color=INK2)
+    ax.set_title("Phone-only post-training of SmolVLA, single-object task", fontsize=10, color=INK, loc="left")
+    ax.legend(fontsize=7, frameon=False, loc="lower right", labelcolor=INK)
+    fig.tight_layout()
+    os.makedirs(out_fig, exist_ok=True)
+    fig.savefig(os.path.join(out_fig, "single_task_demos.png"), dpi=160, facecolor=SURF)
+    print("\n".join(rows))
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--runs", nargs="+", default=["A", "B", "Bprime"])
     p.add_argument("--out", default="outputs/m3")
     p.add_argument("--results", action="store_true", help="README figures + tables from the current result files")
+    p.add_argument("--single", action="store_true", help="single-object task figures (SmolVLA, outputs/colab)")
     a = p.parse_args()
+    if a.single:
+        return single_task()
     if a.results:
         return results()
     res = {}
