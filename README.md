@@ -79,7 +79,22 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
   nearest training clip's grasp than to the average one (`scripts/grasp_vs_train.py`).
 
 Protocol: success at fixed steps (20 episodes; 40 at 10k) on the standard evaluation layouts. The one selection
-(which method gets self-improvement) uses separate validation layouts at 10k. Single training seed per method.
+(which method gets self-improvement) uses separate validation layouts at 10k.
+
+**Each method is a single training seed.** Run-to-run variation is not measured, so the conclusions rest on two
+things: a paired evaluation on held-out layouts (below), and the consistency of the curves across checkpoints and
+seed sets.
+
+### Held-out paired evaluation
+
+Existing checkpoints only, no retraining. Fresh layouts (never used for evaluation, selection or data), the same
+layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 10k, ambient 10k and quality 10k;
+100 for the rest. Wilson 95% intervals; exact McNemar tests on the shared episodes
+(`scripts/paired_eval.py`).
+
+<!-- FRESH TABLE: python scripts/paired_eval.py -->
+*Running.*
+<!-- /FRESH TABLE -->
 
 ## How we got here
 
