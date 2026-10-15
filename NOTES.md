@@ -454,3 +454,10 @@ all runs even past Thursday noon.
   outweigh clips 6:1 and get t_min 0, noisy-sampled grasps, LR restart.
 - dcad fetch now also pulls self_improve_best.json.
 - Still running: P5_naive_15_vn, P5_naive_30 (k40 re-eval), P5_amb_30.
+
+## 2026-10-15 11:40: VN and naive@30 (k40)
+
+- P5_naive_15_vn: 60 / 85 / 80 / 77.5 (k40, CI 62–88); validation 70. Milder late decline than naive.
+- P5_naive_30 re-eval: 82.5% at 10k (k40, CI 68–91; first 20 seeds unchanged at 80%).
+- Queued after this job: evalsets.P5_fresh (held-out, seed_base 7,000,000, paired; 200 eps for naive 5k/10k, ambient
+  10k, quality 10k; 100 for the rest). Stats: scripts/paired_eval.py.

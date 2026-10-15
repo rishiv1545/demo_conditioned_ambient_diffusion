@@ -24,7 +24,7 @@ two; the policy never saw this layout.*
 | demos | data | midpoint checkpoint % | end of training % (95% CI) |
 |---|---|---|---|
 | 15 | phone | 85 | 55 (34–74) |
-| 30 | phone | 45 | 80 (58–92) |
+| 30 | phone | 45 | 82.5 (68–91), 40 episodes |
 | 60 | phone | 95 | 80 (58–92) |
 | 100 | phone | 100 | 95 (76–99) |
 | 15 | clean sim expert | 30 | 95 (76–99) |
@@ -60,7 +60,7 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 | naive | 95 | 85 | 50 | 55.0 (40–69) | 67.5 |
 | ambient | 75 | 90 | 85 | **92.5 (80–97)** | 85.0 |
 | quality-tagged | 85 | 90 | 80 | 87.5 (74–95) | 80.0 |
-| velocity-normalized (naive) | | | | *running* | |
+| velocity-normalized (naive) | 60 | 85 | 80 | 77.5 (62–88) | 70.0 |
 | self-improvement (1 round on ambient) | | | | 67.5 (52–80) at 13k | |
 <!-- /METHODS TABLE -->
 
@@ -69,6 +69,8 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 - **Ambient does not decline** and ends at 92.5%. That matches the best naive checkpoint without having to pick it,
   and beats the naive 5k baseline (85%) by about 8 points (within the intervals).
 - **Quality tags also hold up** (87.5% at 10k, no late decline) and end 5 points below ambient on both seed sets (within the intervals).
+- **Velocity normalization softens naive's decline** (85% at 5k → 77.5% at 10k, vs naive's 85% → 55%) but ends
+  below ambient and quality, and starts lower (60% at 2.5k).
 - **Self-improvement made the best run worse.** Ambient won the validation selection (85 vs 80 vs 67.5). Its
   rollouts succeeded 93/100 (sampling noise on), and 3k more steps on those plus the 15 clips dropped it from 92.5% to
   67.5% on the same 40 episodes (11 lost, 1 gained; exact McNemar p ≈ 0.006). The grasp point moved +0.8 cm in x,

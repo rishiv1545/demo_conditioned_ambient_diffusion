@@ -234,7 +234,7 @@ def single_task(out_fig="docs/figures"):
     ax.minorticks_off()
     ax.set_ylim(0, 105)
     ax.set_xlabel("demos (single object, one task)", fontsize=8, color=INK2)
-    ax.set_ylabel("success % (20 episodes)", fontsize=8, color=INK2)
+    ax.set_ylabel("success % (20 episodes; 40 for phone 30 at the end)", fontsize=8, color=INK2)
     ax.set_title("Phone-only post-training of SmolVLA, single-object task", fontsize=10, color=INK, loc="left")
     ax.legend(fontsize=7, frameon=False, loc="lower right", labelcolor=INK)
     fig.tight_layout()
