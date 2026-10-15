@@ -1,5 +1,5 @@
 {
-  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix. Blue-only runs (B_*): no red/green data; eval_steps 'plateau' evaluates the earliest checkpoint after init_from whose blue probe accuracy is within 2/32 of the best (plateau.json). B2_*: 75% blue / 25% red/green (+recovery) per batch (--mix, blue split by frames), lr 1e-5 constant after a 200-step warmup, early stopping (early_stop: probe every 250 steps, blue only; stop when blue accuracy and nearest-cube distance plateau for 1k steps, cap 4k; checkpoint = best blue accuracy with nearest-cube distance <= 3.5 cm, selected.json). stages: this run's own stage list (replaces the job's --stages; self_improve runs must list it). Validation seeds: an eval variant with --seed_base 5000000 (tag _br_zn_val) is used for selection (checkpoints, self_improve_best), the standard seeds only for reporting. eval_k_final: episodes at the last listed eval step (default eval_k).",
+  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix. Blue-only runs (B_*): no red/green data; eval_steps 'plateau' evaluates the earliest checkpoint after init_from whose blue probe accuracy is within 2/32 of the best (plateau.json). B2_*: 75% blue / 25% red/green (+recovery) per batch (--mix, blue split by frames), lr 1e-5 constant after a 200-step warmup, early stopping (early_stop: probe every 250 steps, blue only; stop when blue accuracy and nearest-cube distance plateau for 1k steps, cap 4k; checkpoint = best blue accuracy with nearest-cube distance <= 3.5 cm, selected.json). stages: this run's own stage list (replaces the job's --stages; self_improve runs must list it). Validation seeds: an eval variant with --seed_base 5000000 (tag _br_zn_val) is used for selection (checkpoints, self_improve_best), the standard seeds only for reporting. eval_k_final: episodes at the last listed eval step (default eval_k). evalsets: {name: {tag, args, items: [[run, step, k], ...]}} evaluate existing checkpoints in order (python colab/dcad.py run <name>); status and log in <OUT>/<name>.",
   "defaults": {
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
     "eval_k": 20,
@@ -994,6 +994,65 @@
         ]
       ],
       "_note": "ambient at N=30: per-episode t_min from the quality scores (clean = the top 30% of these N clips by quality score, quality/phone_s5_first30.json). Same recipe as P5_naive_30 (cosine over 10k, seed 0) with checkpoints every 2.5k, evaluated at every fixed step (20 episodes; 40 at the final one) on the standard seeds (_br_zn, reported) and on validation seeds (_br_zn_val, seed_base 5,000,000; selection only)"
+    }
+  },
+  "evalsets": {
+    "P5_fresh": {
+      "tag": "_br_zn_fresh",
+      "args": "--tasks blue-red --noise_scale 0 --seed_base 7000000",
+      "items": [
+        [
+          "P5_naive_15r",
+          5000,
+          200
+        ],
+        [
+          "P5_naive_15r",
+          10000,
+          200
+        ],
+        [
+          "P5_amb_15",
+          10000,
+          200
+        ],
+        [
+          "P5_qual_15",
+          10000,
+          200
+        ],
+        [
+          "P5_amb_15",
+          7500,
+          100
+        ],
+        [
+          "P5_naive_15r",
+          7500,
+          100
+        ],
+        [
+          "P5_naive_15_vn",
+          10000,
+          100
+        ],
+        [
+          "P5_SI_15",
+          13000,
+          100
+        ],
+        [
+          "P5_naive_30",
+          10000,
+          100
+        ],
+        [
+          "P5_amb_30",
+          10000,
+          100
+        ]
+      ],
+      "_note": "held-out paired eval of existing checkpoints (no retraining): fresh layouts (seed_base 7,000,000; never used for eval, selection or data), the same seeds for every checkpoint (seed_base + task*10000 + k, so the first 100 are shared by the 100- and 200-episode items), zero-noise; listed in priority order (the 200-episode set first)"
     }
   }
 }

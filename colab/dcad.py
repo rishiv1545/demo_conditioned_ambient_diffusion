@@ -166,7 +166,8 @@ def last_job_path(session):
 
 def cmd_run(a):
     with open(os.path.join(REPO, "colab", "runs.json")) as f:
-        known = json.load(f)["runs"]
+        reg = json.load(f)
+        known = {**reg["runs"], **reg.get("evalsets", {})}
     missing = [r for r in a.runs if r not in known]
     if missing:
         sys.exit(f"unknown runs {missing}; add them to colab/runs.json (and push)")

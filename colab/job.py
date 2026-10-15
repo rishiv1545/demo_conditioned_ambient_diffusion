@@ -467,6 +467,43 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
     return status
 
 
+def run_evalset(name, es, reg, job_id):
+    """reg["evalsets"][name] = {"tag": ..., "args": ..., "items": [[run, step, k], ...]}: evaluate existing checkpoints
+    in the listed order (priority), each into <run dir>/eval_step<step>_k<k><tag>. Status and log go to <OUT>/<name>.
+    Items with a summary.json are skipped, so a rerun after a VM drop resumes."""
+    run_dir = f"{OUT}/{name}"
+    os.makedirs(run_dir, exist_ok=True)
+    status = {"run": name, "job": job_id, "stages": ["evalset"], "done": [], "stage": "evalset", "error": None,
+              "started": time.strftime("%Y-%m-%d %H:%M:%S"), "items": []}
+    with open(f"{run_dir}/job.log", "a") as log:
+        log.write(f"\n===== {status['started']} job {job_id} evalset {name}\n")
+        for run, step, k in es["items"]:
+            ed = f"{OUT}/{run}/eval_step{step:06d}_k{k}{es['tag']}"
+            item = {"run": run, "step": step, "k": k}
+            try:
+                assert os.path.exists(f"{OUT}/{run}/step_{step:06d}/trainable.pt"), f"no checkpoint {run} {step}"
+                if not os.path.exists(f"{ed}/summary.json"):
+                    # (self-improvement runs list no data: theirs is the candidate's, loaded by an earlier item)
+                    for d, _ in (dataset_specs(reg["runs"][run]) if "data" in reg["runs"][run] else []):
+                        ensure_dataset(d, log)
+                    t0 = time.time()
+                    sh(f"python vla/eval_smolvla.py --run {OUT}/{run} --step {step} --k {k} --out {ed} --device cuda "
+                       f"{reg['runs'][run].get('eval_args', '')} {es['args']}", log)
+                    item["seconds"] = round(time.time() - t0)
+                item["success"] = json.load(open(f"{ed}/summary.json"))["heldout"]["success"]
+            except Exception as e:   # keep going with the next item
+                item["error"] = f"{type(e).__name__}: {e}"
+                status["error"] = item["error"]
+                log.write(traceback.format_exc())
+            status["items"].append(item)
+            write_json(f"{run_dir}/job_status.json", status)
+    status["stage"] = "finished"
+    status["done"] = ["evalset"]
+    status["ended"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    write_json(f"{run_dir}/job_status.json", status)
+    return status
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("runs", nargs="+")
@@ -484,9 +521,10 @@ def main():
     assert set(stages) <= set(RUN_STAGES), f"stages must be in {RUN_STAGES}"
     assert os.path.isdir("/content/drive/MyDrive"), "Drive is not mounted (run `colab drivemount -s <session>`)"
     reg = load_runs()
-    missing = [r for r in a.runs if r not in reg["runs"]]
+    evalsets = reg.get("evalsets", {})
+    missing = [r for r in a.runs if r not in reg["runs"] and r not in evalsets]
     assert not missing, f"unknown runs {missing}; add them to colab/runs.json"
-    for r in a.runs:   # a run's own "stages" (runs.json) replace the job's, so one job can mix e.g. eval-only runs
+    for r in [r for r in a.runs if r in reg["runs"]]:   # a run's own "stages" (runs.json) replace the job's, so one job can mix e.g. eval-only runs
         assert set(reg["runs"][r].get("stages", stages)) <= set(RUN_STAGES), f"{r}: stages must be in {RUN_STAGES}"
     os.makedirs(f"{DRIVE}/jobs", exist_ok=True)
     job_path = f"{DRIVE}/jobs/{a.job_id}.json"
@@ -497,6 +535,10 @@ def main():
         for r in a.runs:
             job["current"] = r
             write_json(job_path, job)
+            if r in evalsets:
+                s = run_evalset(r, evalsets[r], reg, a.job_id)
+                job["results"][r] = {"error": s["error"], "done": s["done"]}
+                continue
             steps = [int(x) for x in a.eval_steps.split(",") if x] or None
             cfg = reg["runs"][r]
             if "self_improve_best" in cfg:
