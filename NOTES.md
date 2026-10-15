@@ -473,3 +473,10 @@ all runs even past Thursday noon.
 naive 5k 79.0 (73–84), naive 10k 64.5 (58–71), ambient 10k 86.5 (81–91), quality 10k 82.5 (77–87).
 Exact McNemar: amb10k vs naive10k 60/16 p 3.9e-7; amb10k vs naive5k 33/18 p 0.049 (Holm 0.098 over the 4 planned);
 amb vs qual 27/19 p 0.30; naive 5k vs 10k 46/17 p 0.00034. outputs/p5_fresh_paired.json. 100-episode set running.
+
+## 2026-10-15 14:25: held-out paired eval finished (all 10 checkpoints; VM self-stops 14:34)
+
+100-episode set: naive 7.5k 66, ambient 7.5k 87, VN 10k 83, SI 13k 71, naive@30 83, ambient@30 83.
+Paired: SI vs amb10k 10/23 p 0.035; amb@30 vs naive@30 6/6 p 1; VN vs naive10k 27/8 p 0.0019; VN vs amb10k 11/12 p 1;
+VN vs naive5k 9/10; VN vs qual 9/11 p 0.82. VN's 77.5% on the 40 standard seeds was low: on held-out it is level with
+ambient and quality. Write-up: ambient, quality and VN all avoid naive's late decline; none shown better than the others.

@@ -67,12 +67,14 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 - **Naive training peaks early and then declines** (95% at 2.5k → 55% at 10k). The original run and a rerun with
   the same seed agree, and the decline also shows on the separate validation layouts (95% → 67.5%).
 - **Ambient does not decline** and ends at 92.5%. That matches the best naive checkpoint without having to pick it,
-  and beats the naive 5k baseline (85%) by about 8 points (within the intervals).
-- **Quality tags also hold up** (87.5% at 10k, no late decline) and end 5 points below ambient on both seed sets (within the intervals).
-- **Velocity normalization softens naive's decline** (85% at 5k → 77.5% at 10k, vs naive's 85% → 55%) but ends
-  below ambient and quality, and starts lower (60% at 2.5k).
+  and is above the naive 5k baseline (85%) by about 8 points (within the intervals; held-out: 86.5% vs 79%,
+  p = 0.049 before correction).
+- **Quality tags also hold up** (87.5% at 10k, no late decline), 5 points below ambient on both seed sets (within
+  the intervals; held-out p = 0.30).
+- **Velocity normalization also largely avoids naive's decline** (85% at 5k → 77.5% at 10k, vs naive's 85% → 55%).
+  On the held-out layouts it matches ambient (below).
 - **At 30 demos ambient gives nothing.** Naive@30 does not show the late decline (45% at 5k → 82.5% at 10k), and
-  ambient@30 ends at 80% (80 / 60 / 70 / 80 at 2.5k–10k): on the same 40 episodes 2 won, 3 lost. The ambient gain at
+  ambient@30 ends at 80% (80 / 60 / 70 / 80 at 2.5k–10k): on the same 40 episodes 2 won, 3 lost (held-out: 83% each). The ambient gain at
   15 demos is a gain where naive breaks down, not a general one.
 - **Self-improvement made the best run worse.** Ambient won the validation selection (85 vs 80 vs 67.5). Its
   rollouts succeeded 93/100 (sampling noise on), and 3k more steps on those plus the 15 clips dropped it from 92.5% to
@@ -101,15 +103,15 @@ layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 1
 | checkpoint | episodes | success % | Wilson 95% CI |
 |---|---|---|---|
 | naive 5k | 200 | 79.0 | 73–84 |
-| naive 7.5k | – | *pending* | |
+| naive 7.5k | 100 | 66.0 | 56–75 |
 | naive 10k | 200 | 64.5 | 58–71 |
-| ambient 7.5k | – | *pending* | |
+| ambient 7.5k | 100 | 87.0 | 79–92 |
 | ambient 10k | 200 | 86.5 | 81–91 |
 | quality 10k | 200 | 82.5 | 77–87 |
-| VN (naive) 10k | – | *pending* | |
-| self-improvement 13k | – | *pending* | |
-| naive@30 10k | – | *pending* | |
-| ambient@30 10k | – | *pending* | |
+| VN (naive) 10k | 100 | 83.0 | 74–89 |
+| self-improvement 13k | 100 | 71.0 | 61–79 |
+| naive@30 10k | 100 | 83.0 | 74–89 |
+| ambient@30 10k | 100 | 83.0 | 74–89 |
 
 | comparison (A vs B) | shared episodes | A % | B % | A only | B only | exact McNemar p |
 |---|---|---|---|---|---|---|
@@ -117,17 +119,24 @@ layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 1
 | ambient 10k vs naive 5k | 200 | 86.5 | 79.0 | 33 | 18 | 0.049 |
 | ambient 10k vs quality 10k | 200 | 86.5 | 82.5 | 27 | 19 | 0.3 |
 | naive 5k vs naive 10k | 200 | 79.0 | 64.5 | 46 | 17 | 0.00034 |
-| self-improvement 13k vs ambient 10k | *pending* | | | | | |
-| ambient@30 10k vs naive@30 10k | *pending* | | | | | |
-| VN (naive) 10k vs naive 10k | *pending* | | | | | |
+| self-improvement 13k vs ambient 10k | 100 | 71.0 | 84.0 | 10 | 23 | 0.035 |
+| ambient@30 10k vs naive@30 10k | 100 | 83.0 | 83.0 | 6 | 6 | 1 |
+| VN (naive) 10k vs naive 10k | 100 | 83.0 | 64.0 | 27 | 8 | 0.0019 |
+| VN (naive) 10k vs ambient 10k | 100 | 83.0 | 84.0 | 11 | 12 | 1 |
 
 - **Naive declines late; ambient doesn't.** On fresh layouts naive falls from 79.0% (5k) to 64.5% (10k)
-  (46 vs 17 discordant, p = 0.0003). Ambient at 10k is 86.5% vs naive's 64.5% (60 vs 16, p = 4e-7).
+  (46 vs 17 discordant, p = 0.0003). Ambient at 10k is 86.5% vs naive's 64.5% (60 vs 16, p = 4e-7). Ambient at
+  7.5k and 10k agree (87% and 84% on the same 100 episodes).
 - **Ambient at 10k vs the best naive checkpoint (5k)**: 86.5% vs 79.0% (33 vs 18, p = 0.049). Suggestive, not
   significant after a Holm correction over the four planned comparisons (adjusted p = 0.098).
-- **Ambient vs quality-tagged**: 86.5% vs 82.5% (27 vs 19, p = 0.30); no detectable difference.
-- The held-out numbers are 3–6 points below the 40-episode standard-layout ones for ambient and quality, and within
-  their intervals.
+- **Ambient, quality-tagged and VN end level.** Ambient vs quality 86.5% vs 82.5% (27 vs 19, p = 0.30); VN 83% vs
+  ambient 84% on the same 100 episodes (11 vs 12, p = 1). VN beats naive at 10k (27 vs 8, p = 0.002). VN's 77.5% on
+  the 40 standard layouts was at the low end of its interval. All three avoid the late decline; none is shown to be
+  better than the others.
+- **Self-improvement hurts on held-out layouts too**: 71% vs its starting checkpoint's 84% (10 vs 23, p = 0.035).
+- **At 30 demos ambient and naive are identical**: 83% each (6 vs 6).
+- The held-out numbers for ambient and quality are 3–6 points below the 40-episode standard-layout ones, within
+  their intervals. The extra comparisons beyond the four planned ones are not corrected for multiple testing.
 <!-- /FRESH TABLE -->
 
 ## How we got here

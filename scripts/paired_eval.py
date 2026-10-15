@@ -19,7 +19,7 @@ CHECKPOINTS = [   # label, run, step
     ("naive@30 10k", "P5_naive_30", 10000), ("ambient@30 10k", "P5_amb_30", 10000)]
 PAIRS = [("ambient 10k", "naive 10k"), ("ambient 10k", "naive 5k"), ("ambient 10k", "quality 10k"),
          ("naive 5k", "naive 10k"), ("self-improvement 13k", "ambient 10k"), ("ambient@30 10k", "naive@30 10k"),
-         ("VN (naive) 10k", "naive 10k")]
+         ("VN (naive) 10k", "naive 10k"), ("VN (naive) 10k", "ambient 10k")]
 
 
 def wilson(s, n, z=1.959964):
