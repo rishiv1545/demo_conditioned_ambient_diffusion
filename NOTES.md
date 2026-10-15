@@ -461,3 +461,9 @@ all runs even past Thursday noon.
 - P5_naive_30 re-eval: 82.5% at 10k (k40, CI 68–91; first 20 seeds unchanged at 80%).
 - Queued after this job: evalsets.P5_fresh (held-out, seed_base 7,000,000, paired; 200 eps for naive 5k/10k, ambient
   10k, quality 10k; 100 for the rest). Stats: scripts/paired_eval.py.
+
+## 2026-10-15 11:45: ambient@30; job finished 11:42
+
+- P5_amb_30: 80 / 60 / 70 / 80 (k40, CI 65–90); validation 95 / 60 / 70 / 75. vs naive@30 82.5 on the same 40 seeds:
+  amb-only 2, naive-only 3. No ambient gain at N=30 (naive@30 has no late decline: 45 -> 82.5).
+- P5_fresh (held-out eval) started 11:43 as job dcad-20261015-114327; watcher in outputs/colab_p5fresh.log.

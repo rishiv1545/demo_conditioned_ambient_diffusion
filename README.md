@@ -71,6 +71,9 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 - **Quality tags also hold up** (87.5% at 10k, no late decline) and end 5 points below ambient on both seed sets (within the intervals).
 - **Velocity normalization softens naive's decline** (85% at 5k → 77.5% at 10k, vs naive's 85% → 55%) but ends
   below ambient and quality, and starts lower (60% at 2.5k).
+- **At 30 demos ambient gives nothing.** Naive@30 does not show the late decline (45% at 5k → 82.5% at 10k), and
+  ambient@30 ends at 80% (80 / 60 / 70 / 80 at 2.5k–10k): on the same 40 episodes 2 won, 3 lost. The ambient gain at
+  15 demos is a gain where naive breaks down, not a general one.
 - **Self-improvement made the best run worse.** Ambient won the validation selection (85 vs 80 vs 67.5). Its
   rollouts succeeded 93/100 (sampling noise on), and 3k more steps on those plus the 15 clips dropped it from 92.5% to
   67.5% on the same 40 episodes (11 lost, 1 gained; exact McNemar p ≈ 0.006). The grasp point moved +0.8 cm in x,
