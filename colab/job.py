@@ -445,12 +445,16 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         steps = list(dict.fromkeys(b if x == "best_probe" else x for x in steps))
                     have = {int(os.path.basename(d)[5:]) for d in glob.glob(f"{run_dir}/step_*")
                             if os.path.exists(f"{d}/trainable.pt")}
-                    for step in [x for x in steps if x in have] or [latest_step(run_dir)]:
+                    todo = [x for x in steps if x in have] or [latest_step(run_dir)]
+                    for step in todo:
+                        # eval_k_final: more episodes at the run's last listed checkpoint (the curve points keep
+                        # eval_k; the first eval_k seeds are shared, the seeds are base + 0..k-1)
+                        k = cfg.get("eval_k_final", eval_k) if step == max(steps) else eval_k
                         for tag, vargs in variants:
-                            ed = f"{run_dir}/eval_step{step:06d}_k{eval_k}{tag}"
+                            ed = f"{run_dir}/eval_step{step:06d}_k{k}{tag}"
                             if os.path.exists(f"{ed}/summary.json"):
                                 continue
-                            sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {eval_k} "
+                            sh(f"python vla/eval_smolvla.py --run {run_dir} --step {step} --k {k} "
                                f"--out {ed} --device cuda {cfg.get('eval_args', '')} {vargs}", log)
                 status["timings_s"][st] = round(time.time() - t0)
                 status["done"].append(st)

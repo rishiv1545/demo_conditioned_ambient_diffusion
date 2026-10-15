@@ -1,5 +1,5 @@
 {
-  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix. Blue-only runs (B_*): no red/green data; eval_steps 'plateau' evaluates the earliest checkpoint after init_from whose blue probe accuracy is within 2/32 of the best (plateau.json). B2_*: 75% blue / 25% red/green (+recovery) per batch (--mix, blue split by frames), lr 1e-5 constant after a 200-step warmup, early stopping (early_stop: probe every 250 steps, blue only; stop when blue accuracy and nearest-cube distance plateau for 1k steps, cap 4k; checkpoint = best blue accuracy with nearest-cube distance <= 3.5 cm, selected.json). stages: this run's own stage list (replaces the job's --stages; self_improve runs must list it). Validation seeds: an eval variant with --seed_base 5000000 (tag _br_zn_val) is used for selection (checkpoints, self_improve_best), the standard seeds only for reporting.",
+  "_doc": "Named Colab runs for colab/dcad.py. data: dataset names (Drive: dcad/datasets/<name>.tar); clean_blue_per_task: N clean sim demos per blue task (first N of sim_blue_v2c_24); phone: 'all' | 'blue' (phone_v2 replays, all tasks or blue only); ambient: true adds --ambient_t_min defaults.ambient_t_min (chosen from the small-policy sweep; null = not chosen yet, ambient runs refuse to start); train: extra train_smolvla.py args (added to defaults.train); probe: extra probe args; eval_k: episodes/task for the final eval (0 = skip); eval_steps: checkpoints to evaluate (default: the latest); init_from: continue another run's latest checkpoint (weights + optimizer). Add a new entry per experiment; never edit one that has run (its checkpoints on Drive were made with those args). eval_args: extra eval args for every eval of the run; eval_variants: [[tag, args], ...] evaluated per step (e.g. normal vs zero-noise sampling). probe_step: checkpoint(s) to probe (default all). Task-balanced sampling: train --balance tasks; dataset fractions: train --mix. Blue-only runs (B_*): no red/green data; eval_steps 'plateau' evaluates the earliest checkpoint after init_from whose blue probe accuracy is within 2/32 of the best (plateau.json). B2_*: 75% blue / 25% red/green (+recovery) per batch (--mix, blue split by frames), lr 1e-5 constant after a 200-step warmup, early stopping (early_stop: probe every 250 steps, blue only; stop when blue accuracy and nearest-cube distance plateau for 1k steps, cap 4k; checkpoint = best blue accuracy with nearest-cube distance <= 3.5 cm, selected.json). stages: this run's own stage list (replaces the job's --stages; self_improve runs must list it). Validation seeds: an eval variant with --seed_base 5000000 (tag _br_zn_val) is used for selection (checkpoints, self_improve_best), the standard seeds only for reporting. eval_k_final: episodes at the last listed eval step (default eval_k).",
   "defaults": {
     "train": "--steps 15000 --lr 1e-4 --lr_schedule constant --warmup 300 --save_every 2500 --batch 32 --grad_accum 1 --resume --device cuda",
     "eval_k": 20,
@@ -805,7 +805,11 @@
           "--tasks blue-red --noise_scale 0"
         ]
       ],
-      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first 30 clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 10k; zero-noise eval 20 at the midpoint and the end"
+      "_note": "phone-only single-object task (session 5, blue lid -> red patch) from smolvla_base: the first 30 clips in recording order (nested sets), every extracted replay incl. failed ones, naive loss (sigma ignored); cosine over 10k; zero-noise eval 20 at the midpoint and the end; 2026-10-14 re-eval only (stages eval): 40 episodes at 10k (eval_k_final; the first 20 are the same seeds), the naive reference for P5_amb_30",
+      "stages": [
+        "eval"
+      ],
+      "eval_k_final": 40
     },
     "P5_naive_60": {
       "data": [
@@ -865,7 +869,131 @@
           "--tasks blue-red --noise_scale 0 --seed_base 5000000"
         ]
       ],
-      "_note": "P5_naive_15 again (same args and seed) with checkpoints every 2.5k: the success curve at fixed steps (did the 85% -> 55% drop from 5k to 10k come from late memorization of phone noise?); its 5k/10k vs P5_naive_15 measure run-to-run nondeterminism. _br_zn: the standard eval seeds (reported at every fixed step); _br_zn_val: separate validation seeds (seed_base 5,000,000) for any checkpoint or method selection, so the reported numbers are on seeds no choice was made with"
+      "_note": "P5_naive_15 again (same args and seed) with checkpoints every 2.5k: the success curve at fixed steps (did the 85% -> 55% drop from 5k to 10k come from late memorization of phone noise?); its 5k/10k vs P5_naive_15 measure run-to-run nondeterminism. _br_zn: the standard eval seeds (reported at every fixed step); _br_zn_val: separate validation seeds (seed_base 5,000,000) for any checkpoint or method selection, so the reported numbers are on seeds no choice was made with",
+      "eval_k_final": 40
+    },
+    "P5_amb_15": {
+      "data": [
+        "phone_s5?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 2500 --episode_info quality/phone_s5_first15.json --ambient_per_episode 1",
+      "eval_k": 20,
+      "eval_k_final": 40,
+      "eval_steps": [
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ],
+        [
+          "_br_zn_val",
+          "--tasks blue-red --noise_scale 0 --seed_base 5000000"
+        ]
+      ],
+      "_note": "ambient at N=15: per-episode t_min from the quality scores (clean = the top 30% of these N clips by quality score, quality/phone_s5_first15.json). Same recipe as P5_naive_15 (cosine over 10k, seed 0) with checkpoints every 2.5k, evaluated at every fixed step (20 episodes; 40 at the final one) on the standard seeds (_br_zn, reported) and on validation seeds (_br_zn_val, seed_base 5,000,000; selection only)"
+    },
+    "P5_qual_15": {
+      "data": [
+        "phone_s5?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 2500 --episode_info quality/phone_s5_first15.json --quality_tag 1",
+      "eval_k": 20,
+      "eval_k_final": 40,
+      "eval_steps": [
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ],
+        [
+          "_br_zn_val",
+          "--tasks blue-red --noise_scale 0 --seed_base 5000000"
+        ]
+      ],
+      "_note": "quality-tagged at N=15 (eval asks for high quality). Same recipe as P5_naive_15 (cosine over 10k, seed 0) with checkpoints every 2.5k, evaluated at every fixed step (20 episodes; 40 at the final one) on the standard seeds (_br_zn, reported) and on validation seeds (_br_zn_val, seed_base 5,000,000; selection only)"
+    },
+    "P5_naive_15_vn": {
+      "data": [
+        "phone_s5_vn?per_task=15"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 2500",
+      "eval_k": 20,
+      "eval_k_final": 40,
+      "eval_steps": [
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ],
+        [
+          "_br_zn_val",
+          "--tasks blue-red --noise_scale 0 --seed_base 5000000"
+        ]
+      ],
+      "_note": "naive at N=15 on the velocity-normalized replays (phone_s5_vn, human/velocity_norm.py). Same recipe as P5_naive_15 (cosine over 10k, seed 0) with checkpoints every 2.5k, evaluated at every fixed step (20 episodes; 40 at the final one) on the standard seeds (_br_zn, reported) and on validation seeds (_br_zn_val, seed_base 5,000,000; selection only)"
+    },
+    "P5_SI_15": {
+      "stages": [
+        "data",
+        "cache",
+        "self_improve"
+      ],
+      "eval_k": 20,
+      "self_improve_best": {
+        "candidates": [
+          "P5_naive_15r",
+          "P5_amb_15",
+          "P5_qual_15"
+        ],
+        "tag": "_br_zn_val",
+        "task": "blue-red",
+        "rounds": 1,
+        "n": 100,
+        "steps_per_round": 3000,
+        "eval_k": 40,
+        "eval_tag": "_br_zn"
+      },
+      "_note": "one self-improvement round on the best of naive / ambient / quality at N=15, chosen on the validation seeds at the final checkpoint (_br_zn_val); reported on the standard seeds (_br_zn)"
+    },
+    "P5_amb_30": {
+      "data": [
+        "phone_s5?per_task=30"
+      ],
+      "train": "--unfreeze_vlm 1 --vlm_lr 1e-5 --steps 10000 --lr_schedule cosine --warmup 500 --save_every 2500 --episode_info quality/phone_s5_first30.json --ambient_per_episode 1",
+      "eval_k": 20,
+      "eval_k_final": 40,
+      "eval_steps": [
+        2500,
+        5000,
+        7500,
+        10000
+      ],
+      "eval_variants": [
+        [
+          "_br_zn",
+          "--tasks blue-red --noise_scale 0"
+        ],
+        [
+          "_br_zn_val",
+          "--tasks blue-red --noise_scale 0 --seed_base 5000000"
+        ]
+      ],
+      "_note": "ambient at N=30: per-episode t_min from the quality scores (clean = the top 30% of these N clips by quality score, quality/phone_s5_first30.json). Same recipe as P5_naive_30 (cosine over 10k, seed 0) with checkpoints every 2.5k, evaluated at every fixed step (20 episodes; 40 at the final one) on the standard seeds (_br_zn, reported) and on validation seeds (_br_zn_val, seed_base 5,000,000; selection only)"
     }
   }
 }

@@ -410,3 +410,7 @@ mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
 - Write-up: the comparison table includes naive@5k as a baseline. Don't call the P5_naive_15 drop "memorization"
   unless grasp_vs_train.py shows misses copying the nearest clip; 10k misses (3.7 cm median) are ~2x the clips' own
   grasp error (1.8 cm), more like drift/blending than copying.
+- Decision (user): methods at N=15 (P5_amb_15, P5_qual_15, P5_naive_15_vn, P5_SI_15; naive = P5_naive_15r) plus
+  P5_amb_30 vs the existing P5_naive_30. Final 10k checkpoints: 40 episodes (eval_k_final; curve points 20; SI
+  report 40); P5_naive_30 re-evaluated at 10k with 40. Next job order: P5_naive_15 P5_naive_15r P5_amb_15
+  P5_qual_15 P5_SI_15 P5_naive_15_vn P5_naive_30 P5_amb_30 (~7.5 h, ~40 units at 5.3/h; balance 87.9 at 20:55).
