@@ -38,11 +38,9 @@ two; the policy never saw this layout.*
 - About 100 phone demos reach what 15 clean sim-expert demos reach. Phone results are not monotone in *N* at
   20 episodes per point. The intervals are wide (±15–20 points) and each cell is a single training seed.
 
-## Method comparison at 15 phone demos (running)
+## Method comparison at 15 phone demos
 
-<!-- METHODS: filled from job dcad-20261014-225001 -->
-
-At 15 demos naive training is mid-range (55%). Methods compared on the same 15 clips:
+At 15 demos naive training ends mid-range (55%). Methods compared on the same 15 clips:
 
 - **naive**: flow-matching loss on every clip.
 - **ambient**: the 5 best clips by quality score (top 30% of the 15) are clean; the other 10 supervise only the
@@ -53,11 +51,29 @@ At 15 demos naive training is mid-range (55%). Methods compared on the same 15 c
 - **self-improvement**: one round on the best of naive / ambient / quality. That run's policy collects 100 sim
   rollouts, the successful ones are added as clean data, and it trains 3k more steps.
 
-Protocol: success at fixed steps (2.5k, 5k, 7.5k, 10k; 20 episodes, 40 at 10k) on the standard evaluation layouts.
-The only selection (which method gets self-improvement) uses separate validation layouts. Naive at 5k is listed
-as a baseline. Also ambient vs naive at 30 demos.
+![success during training at 15 phone demos](docs/figures/methods_15.png)
 
-*Curves and table: pending.*
+<!-- METHODS TABLE: python scripts/make_figures.py --methods -->
+| method | 2.5k | 5k | 7.5k | 10k (40 ep., 95% CI) | validation, 10k |
+|---|---|---|---|---|---|
+| *baseline: naive, 5k checkpoint* | | 85 | | | |
+| naive | 95 | 85 | 50 | 55.0 (40–69) | 67.5 |
+| ambient | 75 | 90 | 85 | **92.5 (80–97)** | 85.0 |
+| quality-tagged | | | | *running* | |
+| velocity-normalized (naive) | | | | *pending* | |
+| self-improvement (1 round on the best) | | | | *pending* | |
+<!-- /METHODS TABLE -->
+
+- **Naive training peaks early and then declines** (95% at 2.5k → 55% at 10k). The original run and a rerun with
+  the same seed agree, and the decline also shows on the separate validation layouts (95% → 67.5%).
+- **Ambient does not decline** and ends at 92.5%. That matches the best naive checkpoint without having to pick it,
+  and beats the naive 5k baseline (85%) by about 8 points (within the intervals).
+- **The late failures are grasp drift, not copying.** On the same 20 episodes, naive's grasp point moves +0.6 cm in
+  x from 5k to 10k (in 15 of 20), away from the training clips' average. The 10k misses are no closer to their
+  nearest training clip's grasp than to the average one (`scripts/grasp_vs_train.py`).
+
+Protocol: success at fixed steps (20 episodes; 40 at 10k) on the standard evaluation layouts. The one selection
+(which method gets self-improvement) uses separate validation layouts at 10k. Single training seed per method.
 
 ## How we got here
 
