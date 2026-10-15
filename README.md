@@ -59,15 +59,21 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 | *baseline: naive, 5k checkpoint* | | 85 | | | |
 | naive | 95 | 85 | 50 | 55.0 (40–69) | 67.5 |
 | ambient | 75 | 90 | 85 | **92.5 (80–97)** | 85.0 |
-| quality-tagged | | | | *running* | |
-| velocity-normalized (naive) | | | | *pending* | |
-| self-improvement (1 round on the best) | | | | *pending* | |
+| quality-tagged | 85 | 90 | 80 | 87.5 (74–95) | 80.0 |
+| velocity-normalized (naive) | | | | *running* | |
+| self-improvement (1 round on ambient) | | | | 67.5 (52–80) at 13k | |
 <!-- /METHODS TABLE -->
 
 - **Naive training peaks early and then declines** (95% at 2.5k → 55% at 10k). The original run and a rerun with
   the same seed agree, and the decline also shows on the separate validation layouts (95% → 67.5%).
 - **Ambient does not decline** and ends at 92.5%. That matches the best naive checkpoint without having to pick it,
   and beats the naive 5k baseline (85%) by about 8 points (within the intervals).
+- **Quality tags also hold up** (87.5% at 10k, no late decline) and end 5 points below ambient on both seed sets (within the intervals).
+- **Self-improvement made the best run worse.** Ambient won the validation selection (85 vs 80 vs 67.5). Its
+  rollouts succeeded 93/100 (sampling noise on), and 3k more steps on those plus the 15 clips dropped it from 92.5% to
+  67.5% on the same 40 episodes (11 lost, 1 gained; exact McNemar p ≈ 0.006). The grasp point moved +0.8 cm in x,
+  like naive's late drift. Not diagnosed further: the 93 rollouts outweigh the 15 clips and are treated as clean, and
+  the LR restarts at 5e-5.
 - **The late failures are grasp drift, not copying.** On the same 20 episodes, naive's grasp point moves +0.6 cm in
   x from 5k to 10k (in 15 of 20), away from the training clips' average. The 10k misses are no closer to their
   nearest training clip's grasp than to the average one (`scripts/grasp_vs_train.py`).

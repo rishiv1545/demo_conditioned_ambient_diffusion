@@ -443,3 +443,14 @@ all runs even past Thursday noon.
   (2.1 cm) than to the mean offset (2.6 cm), and the nearest clips' own offsets are ordinary (2.4 cm). So: a
   systematic drift away from the demos late in training, not copying of individual noisy clips. Don't call it
   memorization.
+
+## 2026-10-15 09:45: quality and self-improvement at 15 demos
+
+- P5_qual_15: 85 / 90 / 80 / 87.5 (k40, CI 74–95); validation 80. No late decline; 5 points below ambient on both seed sets.
+- SI selection (validation, 10k): naive 67.5, ambient 85, quality 80 -> ambient (P5_SI_15/self_improve_best.json).
+- P5_SI_15: rollouts at noise 1.0 succeeded 93/100; 3k steps (LR 5e-5 restart, cosine) on 15 clips + 93 rollouts ->
+  67.5% at 13k (k40, CI 52–80) vs ambient's 92.5% on the same seeds. Paired: 26 both, 11 lost, 1 gained (McNemar p 0.006).
+  Mean grasp offset x 1.48 -> 2.28 cm (same drift direction as naive 5k->10k). Not diagnosed; candidates: rollouts
+  outweigh clips 6:1 and get t_min 0, noisy-sampled grasps, LR restart.
+- dcad fetch now also pulls self_improve_best.json.
+- Still running: P5_naive_15_vn, P5_naive_30 (k40 re-eval), P5_amb_30.

@@ -273,7 +273,7 @@ def methods(out_fig="docs/figures"):
     si = json.load(open(f"{COLAB}/P5_SI_15/self_improve_best.json")) if os.path.exists(
         f"{COLAB}/P5_SI_15/self_improve_best.json") else None
     sp = eval_point("P5_SI_15", 13000)
-    rows.append(f"| self-improvement (1 round on {si['best'] if si else '?'}) | | | | "
+    rows.append(f"| self-improvement (1 round on {dict(P5_naive_15r='naive', P5_amb_15='ambient', P5_qual_15='quality-tagged').get(si['best'], si['best']) if si else '?'}) | | | | "
                 + (f"{sp[0]:.1f} ({sp[1]:.0f}–{sp[2]:.0f}) at 13k" if sp else "pending") + " | |")
     ax.set_ylim(0, 105)
     ax.set_xticks([2.5, 5, 7.5, 10])
