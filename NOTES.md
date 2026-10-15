@@ -428,3 +428,18 @@ mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
   `python colab/dcad.py run P5_qual_15 P5_SI_15 P5_naive_15_vn P5_naive_30 P5_amb_30 --stages data,cache,train,eval`
   (finished stages and evals are skipped). ~4.5 h for all; hard stop Thursday 12:00, so drop P5_amb_30 (then
   P5_naive_30, P5_naive_15_vn) if started after ~07:30.
+
+## 2026-10-15 morning: first method results (job dcad-20261014-225001, fetched after the VM drop)
+Resumed 07:31 as job dcad-20261015-073101 (P5_qual_15 P5_SI_15 P5_naive_15_vn P5_naive_30 P5_amb_30); user: finish
+all runs even past Thursday noon.
+- P5_naive_15 re-eval (_br_zn_go) reproduces the original exactly (85% at 5k, 55% at 10k; zero-noise eval is
+  deterministic).
+- P5_naive_15r (same args/seed, checkpoints every 2.5k), standard seeds: 95 / 85 / 50 / 55% (k40 at 10k) at
+  2.5k / 5k / 7.5k / 10k; validation seeds 95 / 95 / 70 / 67.5%. The late decline is reproduced on both seed sets.
+- P5_amb_15 (5 clean of 15): 75 / 90 / 85 / 92.5% (k40); validation 90 / 100 / 85 / 85%. No late decline.
+- Grasp analysis (scripts/grasp_vs_train.py, quality/grasp_vs_train_P5_naive_15_*.json), same 20 episodes at 5k and
+  10k: the grasp point shifts +0.62 cm in x on average (sd 0.86; dx up in 15/20), mean offset (1.75, 0.08) ->
+  (2.36, 0.15) cm vs the 15 training clips' mean (1.3, 0.7). 10k misses are not closer to their nearest clip's offset
+  (2.1 cm) than to the mean offset (2.6 cm), and the nearest clips' own offsets are ordinary (2.4 cm). So: a
+  systematic drift away from the demos late in training, not copying of individual noisy clips. Don't call it
+  memorization.
