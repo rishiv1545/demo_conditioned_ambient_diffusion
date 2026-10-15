@@ -414,3 +414,6 @@ mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
   P5_amb_30 vs the existing P5_naive_30. Final 10k checkpoints: 40 episodes (eval_k_final; curve points 20; SI
   report 40); P5_naive_30 re-evaluated at 10k with 40. Next job order: P5_naive_15 P5_naive_15r P5_amb_15
   P5_qual_15 P5_SI_15 P5_naive_15_vn P5_naive_30 P5_amb_30 (~7.5 h, ~40 units at 5.3/h; balance 87.9 at 20:55).
+- Sweep finished 22:45 (VM reused at 22:50 for job dcad-20261014-225001). Naive curve, zero-noise, 20 episodes:
+  15: 85% (5k) / 55% (10k); 30: 45% / 80%; 60: 95% (7.5k) / 80% (15k); all 100: 100% (7.5k) / 95% (15k).
+  Midpoint >= end in 3 of 4 (all within overlapping CIs except perhaps 15); sim refs 15: 30/95, 30: 100/100.
