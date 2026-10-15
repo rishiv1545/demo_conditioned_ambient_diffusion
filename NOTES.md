@@ -417,3 +417,14 @@ mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
 - Sweep finished 22:45 (VM reused at 22:50 for job dcad-20261014-225001). Naive curve, zero-noise, 20 episodes:
   15: 85% (5k) / 55% (10k); 30: 45% / 80%; 60: 95% (7.5k) / 80% (15k); all 100: 100% (7.5k) / 95% (15k).
   Midpoint >= end in 3 of 4 (all within overlapping CIs except perhaps 15); sim refs 15: 30/95, 30: 100/100.
+
+### Method job stopped: Colab VM dropped (2026-10-15 01:32)
+- Job dcad-20261014-225001 was on P5_qual_15 (started 01:07; checkpoints every 2.5k on Drive, train --resume continues
+  from the last one that reached Drive). Not a self-stop (the job hadn't ended); balance 64.0 units, no sessions.
+- Done before the drop (per the watcher; results on Drive, not fetched yet): P5_naive_15 re-eval (_br_zn_go),
+  P5_naive_15r, P5_amb_15.
+- Not run: P5_SI_15, P5_naive_15_vn, P5_naive_30 (40-episode re-eval), P5_amb_30.
+- No retry (a new VM needs Drive mounted by hand). To resume: `python colab/dcad.py up`, mount Drive, then
+  `python colab/dcad.py run P5_qual_15 P5_SI_15 P5_naive_15_vn P5_naive_30 P5_amb_30 --stages data,cache,train,eval`
+  (finished stages and evals are skipped). ~4.5 h for all; hard stop Thursday 12:00, so drop P5_amb_30 (then
+  P5_naive_30, P5_naive_15_vn) if started after ~07:30.
