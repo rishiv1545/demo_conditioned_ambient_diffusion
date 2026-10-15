@@ -18,7 +18,7 @@ Each metric is divided by a reference (the 90th percentile over clean sim expert
 fixed tolerance for grasp_cm 1.0 and moved_cm 1.0) and turned into a sub-score exp(-max(0, x / ref - 1)), so
 expert-like values score 1. score = 0.4 * success + 0.6 * mean(sub-scores), in [0, 1].
 
-Split: the top --clean_frac by score (successful replays only) are clean (t_min 0: full supervision); the others
+Split (within the scored episodes: --first N restricts them to a training subset): the top --clean_frac by score (successful replays only) are clean (t_min 0: full supervision); the others
 are noisy with t_min from t_lo (best noisy) to t_hi (worst) by score rank. quality = 2 * score - 1 in [-1, 1]
 (appended to the normalized state with train_smolvla.py --quality_tag 1; inference requests +1).
 The output maps dataset -> episode_index -> {score, t_min, quality, clean, metrics}; train_smolvla.py
@@ -102,6 +102,9 @@ def main():
     p.add_argument("--task", default="blue-orange")
     p.add_argument("--sim_dir", default="data/sim_v2_bo", help="clean expert demos for the references")
     p.add_argument("--clean_frac", type=float, default=0.3)
+    p.add_argument("--first", type=int, default=None,
+                   help="score only each dataset's first N episodes (the per_task=N training subset), so the clean "
+                        "split is the top clean_frac of the clips actually used, not of the whole pool")
     p.add_argument("--t_lo", type=float, default=0.5)
     p.add_argument("--t_hi", type=float, default=0.9)
     p.add_argument("--out", required=True)
@@ -112,7 +115,7 @@ def main():
     for name in a.datasets:
         side = json.load(open(os.path.join(a.root, name, "episodes.json")))["episodes"]
         for e in side:
-            if e["task"] != a.task:
+            if e["task"] != a.task or (a.first is not None and e["episode_index"] >= a.first):
                 continue
             d = np.load(e["file"], allow_pickle=True)
             raw = (d["raw_traj"], d["raw_gripper"]) if "raw_traj" in d.files else (None, None)
@@ -122,7 +125,7 @@ def main():
                          "success": bool(e["success"]), "score": s, **m, **{f"sub_{k}": v for k, v in sub.items()}})
     assert rows, f"no {a.task} episodes in {a.datasets}"
     order = sorted(range(len(rows)), key=lambda i: -rows[i]["score"])
-    n_clean = max(1, int(round(a.clean_frac * len(rows))))
+    n_clean = max(1, int(np.ceil(a.clean_frac * len(rows) - 1e-9)))   # 15 clips -> 5, 30 -> 9, 100 -> 30
     clean = [i for i in order if rows[i]["success"]][:n_clean]
     noisy = [i for i in order if i not in clean]
     for i in clean:
@@ -132,7 +135,7 @@ def main():
         rows[i].update(clean=False, t_min=round(a.t_lo + (a.t_hi - a.t_lo) * frac, 3))
     for r in rows:
         r["quality"] = round(2 * r["score"] - 1, 4)
-    out = {"task": a.task, "ref": ref, "dwell_ref_s": dwell_ref, "clean_frac": a.clean_frac,
+    out = {"task": a.task, "ref": ref, "dwell_ref_s": dwell_ref, "clean_frac": a.clean_frac, "first": a.first,
            "t_range": [a.t_lo, a.t_hi], "datasets": {}}
     for r in rows:
         out["datasets"].setdefault(r["dataset"], {})[str(r["episode_index"])] = {

@@ -403,3 +403,10 @@ mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
   on the standard seeds. Any selection (self_improve_best) uses validation seeds (seed_base 5,000,000, tag
   _br_zn_val) at the final checkpoint, never the reported seeds.
 - Fix: job.py refused the self_improve stage (not in STAGES); runs now carry their own "stages".
+- P5_naive_30: 45% (5k) -> 80% (10k), no late decline (10k misses: 3/20 missed grasps).
+- Ambient/quality at N use quality/phone_s5_first{N}.json (scripts/score_phone.py --first N): clean = top 30% of the
+  N clips used (15 -> 5, 30 -> 9), not a cut from the 100-clip pool. Scores don't depend on the pool (sim refs), so
+  the quality tag (2 * score - 1) is unchanged; only the ambient clean/noisy split moves.
+- Write-up: the comparison table includes naive@5k as a baseline. Don't call the P5_naive_15 drop "memorization"
+  unless grasp_vs_train.py shows misses copying the nearest clip; 10k misses (3.7 cm median) are ~2x the clips' own
+  grasp error (1.8 cm), more like drift/blending than copying.
