@@ -28,6 +28,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DRIVE = "/content/drive/MyDrive/dcad"
 OUT = f"{DRIVE}/checkpoints/vla"
 STAGES = ["data", "cache", "train", "probe", "check", "eval", "grasp"]   # check: raw-vs-cached inference (vla/check_cache.py)
+RUN_STAGES = STAGES + ["self_improve"]   # self_improve only where a run lists it (runs.json "stages")
 # grasp: grasp-offset bias/scatter and offline-vs-closed-loop error (vla/grasp_diag.py)
 
 
@@ -435,7 +436,9 @@ def run_one(name, cfg, defaults, stages, job_id, eval_args="", eval_tag="", eval
                         eval_steps = [plateau_step(run_dir, init_step)]
                         log.write(f"plateau step {eval_steps[0]}\n")
                     # variants: [[tag, args], ...] from runs.json (e.g. normal and zero-noise sampling), else the CLI's
-                    variants = cfg.get("eval_variants") or [[eval_tag, eval_args]]
+                    variants = cfg.get("eval_variants") or [["", ""]]
+                    # the job's --eval_tag / --eval_args extend every variant (e.g. a re-eval with a new tag)
+                    variants = [[t + eval_tag, f"{va} {eval_args}".strip()] for t, va in variants]
                     steps = eval_steps or cfg.get("eval_steps") or [latest_step(run_dir)]   # e.g. a step matching another run
                     if "best_probe" in steps:   # list entry: the best checkpoint by the probe (probe_step "all")
                         b = best_probe_step(run_dir, log)
@@ -474,13 +477,13 @@ def main():
                         "the VM itself in that time; this is the fallback when it doesn't)")
     a = p.parse_args()
     stages = [s for s in a.stages.split(",") if s]
-    if any(st in stages for st in ("cache", "train", "probe", "check", "eval", "grasp")) and "data" not in stages:
-        stages = ["data"] + stages   # every later stage needs the datasets (episodes.json) on this VM
-    assert set(stages) <= set(STAGES), f"stages must be in {STAGES}"
+    assert set(stages) <= set(RUN_STAGES), f"stages must be in {RUN_STAGES}"
     assert os.path.isdir("/content/drive/MyDrive"), "Drive is not mounted (run `colab drivemount -s <session>`)"
     reg = load_runs()
     missing = [r for r in a.runs if r not in reg["runs"]]
     assert not missing, f"unknown runs {missing}; add them to colab/runs.json"
+    for r in a.runs:   # a run's own "stages" (runs.json) replace the job's, so one job can mix e.g. eval-only runs
+        assert set(reg["runs"][r].get("stages", stages)) <= set(RUN_STAGES), f"{r}: stages must be in {RUN_STAGES}"
     os.makedirs(f"{DRIVE}/jobs", exist_ok=True)
     job_path = f"{DRIVE}/jobs/{a.job_id}.json"
     job = {"job": a.job_id, "runs": a.runs, "stages": stages, "pid": os.getpid(), "state": "running", "results": {},
@@ -494,7 +497,11 @@ def main():
             cfg = reg["runs"][r]
             if "self_improve_best" in cfg:
                 cfg = resolve_self_improve_best(r, cfg, reg["runs"])
-            s = run_one(r, cfg, reg["defaults"], stages, a.job_id, a.eval_args, a.eval_tag, steps)
+            st = list(cfg.get("stages", stages))
+            if any(x in st for x in ("cache", "train", "probe", "check", "eval", "grasp", "self_improve")) \
+                    and "data" not in st:
+                st = ["data"] + st   # every later stage needs the datasets (episodes.json) on this VM
+            s = run_one(r, cfg, reg["defaults"], st, a.job_id, a.eval_args, a.eval_tag, steps)
             job["results"][r] = {"error": s["error"], "done": s["done"]}
         job["state"] = "failed" if any(v["error"] for v in job["results"].values()) else "finished"
     except BaseException as e:   # still stop the VM below

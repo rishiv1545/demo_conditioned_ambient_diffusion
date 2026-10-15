@@ -392,3 +392,14 @@ identity below m, tanh compression toward M above (m = median cruise 0.103 m/s, 
 Session 5 (100 clips): f clamped for 9 at 0.75 and 2 at 1.5. Replay success 92% -> 94% (021, 038 fail -> ok; none lost).
 Across episodes: cruise speed CV 0.19 -> 0.14 (std 0.021 -> 0.014 m/s), median moving speed CV 0.16 -> 0.12, p95 speed
 mean 0.50 -> 0.39 m/s, duration std 0.70 -> 0.61 s. Dataset phone_s5_vn.
+
+## 2026-10-14 evening: P5 sweep, first results; curve and selection protocol
+- S1b_sim_15: 30% (5k) -> 95% (10k); S1b_sim_30: 100% / 100%. P5_naive_15 (phone): 85% (5k) -> 55% (10k), the 10k
+  failures mostly missed grasps (7/20; median grasp xy error 3.7 cm; the 15 training clips' own median 1.8 cm).
+- Suspected late memorization of phone noise. Checks: P5_naive_15 re-eval (_br_zn_go: same zero-noise episodes, now
+  with per-episode cube start and grasp offset; scripts/grasp_vs_train.py compares each with the nearest training
+  clip) and P5_naive_15r (same args and seed, checkpoints every 2.5k).
+- Method runs (ambient / quality / VN, and naive at N if N != 15) report success at the fixed steps 2.5k/5k/7.5k/10k
+  on the standard seeds. Any selection (self_improve_best) uses validation seeds (seed_base 5,000,000, tag
+  _br_zn_val) at the final checkpoint, never the reported seeds.
+- Fix: job.py refused the self_improve stage (not in STAGES); runs now carry their own "stages".

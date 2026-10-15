@@ -100,7 +100,8 @@ def run_batch(policy, pre, post, jobs, dev, hold=5, record=None, env_cfg=None, c
         diag.append({"target_lifted": bool(lifted[i] > 0.035), "nearest_zone": int(np.argmin(dz)),
                      "in_target_zone": bool(dz[z] <= e.cfg.zone_half), "cube_z": float(p[2]),
                      "held_at_end": bool(np.linalg.norm(e.ee_pos() - p) < e.cfg.release_dist),
-                     "other_cubes_moved": others, "grasp_offset": grasp_err[i]})
+                     "other_cubes_moved": others, "grasp_offset": grasp_err[i],
+                     "cube_start": [float(x) for x in layouts[i]["cubes"][c]]})
         e.close()
     if episodes is not None:
         for i, (t, sd) in enumerate(jobs):
@@ -201,10 +202,12 @@ def main():
     with open(os.path.join(a.out, "episodes.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["task", "seed", "success", "steps", "target_lifted", "in_target_zone", "nearest_zone",
-                    "held_at_end", "other_cubes_moved"])
+                    "held_at_end", "other_cubes_moved", "cube_x", "cube_y", "grasp_dx", "grasp_dy", "grasp_dz"])
         for t, s, ok, n, g in rows:
             w.writerow([task_name(t), s, int(ok), n, int(g["target_lifted"]), int(g["in_target_zone"]),
-                        ZONES[g["nearest_zone"]], int(g["held_at_end"]), "|".join(CUBES[j] for j in g["other_cubes_moved"])])
+                        ZONES[g["nearest_zone"]], int(g["held_at_end"]), "|".join(CUBES[j] for j in g["other_cubes_moved"]),
+                        *[f"{x:.4f}" for x in g["cube_start"]],
+                        *([f"{x:.4f}" for x in g["grasp_offset"]] if g["grasp_offset"] is not None else ["", "", ""])])
     per = {t: [r[2] for r in rows if r[0] == t] for t in tasks}
     summary = {"run": a.run, "step": step, "k": a.k, "n_action_steps": a.n_action_steps,
                "no_distractors": a.no_distractors, "noise_scale": a.noise_scale,
