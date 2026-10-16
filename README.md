@@ -12,10 +12,13 @@ In this controlled setup (one cube, one target zone, a fixed top-down phone, see
 **SmolVLA post-trained only on 100 retargeted phone demos succeeds in 95% of sim episodes at the end of training and
 100% at the midpoint checkpoint** (20 episodes each, zero-noise sampling). No robot or sim-expert demos are used.
 
-![phone clip and trained policy](docs/figures/hero.gif)
-*Left: one of the 100 phone clips (real time). Right: the policy trained on all 100 clips (final checkpoint,
-zero-noise sampling) on an evaluation layout in sim, front camera (real time). The cube start differs between the
-two; the policy never saw this layout.*
+![phone clip and its sim replay](docs/media/phone_vs_sim.gif)
+*Left: one of the 100 phone clips. Right: the sim demo produced from it, rendered from the phone's viewpoint and
+aligned in time (the phone frame holds during the dwells the retargeting inserts at gripper switches).*
+
+![policy trained on 100 phone demos](docs/media/rollout.gif)
+*The policy trained on all 100 phone demos (final checkpoint, zero-noise sampling) on an unseen evaluation layout
+in sim, front camera, real time.*
 
 ### Success vs number of demos
 
@@ -51,7 +54,15 @@ At 15 demos naive training ends mid-range (55%). Methods compared on the same 15
 - **self-improvement**: one round on the best of naive / ambient / quality. That run's policy collects 100 sim
   rollouts, the successful ones are added as clean data, and it trains 3k more steps.
 
-![success during training at 15 phone demos](docs/figures/methods_15.png)
+What the methods see in the data:
+
+| quality tags: highest vs lowest of the 15 clips | ambient: a clean clip vs a noisy one | velocity normalization: as recorded vs normalized |
+|---|---|---|
+| ![quality tags](docs/media/quality_tags.gif) | ![ambient clean vs noisy](docs/media/ambient_clean_vs_noisy.gif) | ![velocity normalization](docs/media/vn_before_after.gif) |
+
+![final checkpoint by method at 15 phone demos](docs/figures/methods_15.png)
+*Final checkpoint of each method on the held-out paired evaluation (fresh layouts; 200 episodes for naive,
+ambient and quality-tagged, 100 for velocity-normalized and self-improvement).*
 
 <!-- METHODS TABLE: python scripts/make_figures.py --methods -->
 | method | 2.5k | 5k | 7.5k | 10k (40 ep., 95% CI) | validation, 10k |
@@ -139,53 +150,12 @@ layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 1
   their intervals. The extra comparisons beyond the four planned ones are not corrected for multiple testing.
 <!-- /FRESH TABLE -->
 
-## How we got here
-
-**The original setup: 9 tasks, held-out object.** Three cubes and three zones (9 pick-and-place tasks). Plenty of sim
-expert data for red and green, few or no robot demos for blue, and phone clips for all tasks. The question was whether
-phone demos could teach the held-out blue tasks. For SmolVLA this failed before the phone data mattered:
-
-- **Grounding.** With the VLM frozen, the policy ignored the color in the instruction (grounding probe at chance:
-  0.29–0.46 vs 0.33). Unfreezing the language layers grounded red and green (probe 0.8–0.94) but never blue
-  (0.03–0.12). Even 40 clean sim demos of a blue task at 30% of each batch left blue at chance (2% success).
-- **Per-task demo requirement.** For a single blue task in the three-cube scene, ≥ 50% success took between 160 and
-  320 clean sim demos (80: 15%, 160: 40%, 320: 80%). The 38 blue phone replays alone gave 1–3%. So did 38 clean sim
-  demos (0–1%). At that data size the phone vs sim question could not be answered.
-- **Base-policy grasp precision.** On the seen tasks, failures were mostly missed grasps from closed-loop drift
-  (offline grasp error 0.26 cm, closed-loop rms 3.65 cm). Recovery demos (DART-style) and zero-noise sampling moved
-  seen success from 39% to 65%.
-
-So the task was constrained to one object and one zone, where clean sim demos reach 95–100% with 15–30 demos. Then
-100 phone clips were recorded on the matching real layout.
-
-**The controlled experiment: a small diffusion policy.** A 5.4M-parameter DDPM policy on privileged state (cube and
-zone positions, one-hot task) isolates the data and loss question from perception and language. With 4 clean demos
-per blue task, the 48 phone replays (9-task setup, 3 seeds each) gave:
-
-| robot demos per blue task | phone demos | loss on phone data | seen % | blue % |
-|---|---|---|---|---|
-| 0 | none | – | 88.7 (1 seed) | 0.0 |
-| 0 | all | naive | 86.0 ± 1.2 | 9.6 ± 2.2 |
-| 4 | none | – | 87.6 ± 0.6 | 44.4 ± 3.5 |
-| 4 | all | naive | 82.8 ± 0.3 | 43.8 ± 3.3 |
-| 4 | 37 successful replays only | naive | 85.2 ± 0.9 | 50.7 ± 3.8 |
-| 4 | 37 successful replays only | ambient | 91.0 ± 0.3 | 64.9 ± 0.3 |
-| 4 | all | ambient | 90.0 ± 1.9 | **65.3 ± 1.1** |
-
-Naive training on phone data gains nothing; the ambient loss (noisy samples supervise only diffusion steps
-t ≥ t_min) raises blue success from 44% to 65%, beats filtering out failed replays, and does not need them removed.
-On synthetic phone-like noise the best t_min rises with the noise level, and noisy demos help only when clean data
-is scarce (4 per task; from 8 on, discarding them is better).
-
-![real phone replays on the small policy](docs/figures/phone_small_policy.png)
-
-Figures for the noise sweep and clean-data scaling: `docs/figures/noise_vs_tmin.png`, `docs/figures/clean_scaling.png`;
-all numbers in [`docs/results_tables.md`](docs/results_tables.md).
-
 ## Phone pipeline
 
 1. **Recording** (`RECORDING.md`): phone 43 cm above the table looking down (0.5× lens); four ArUco markers give
-   metric table coordinates in every frame. Session 5: 100 clips of the single-object task.
+   metric table coordinates in every frame. Session 5: 100 clips of the single-object task, a blue lid moved
+   onto a red patch (the sim's blue cube and red zone); the red patch is fixed and the lid starts in a 7.7 × 7.7 cm
+   box.
 2. **Extraction** (`scripts/process_phone.py`): MediaPipe hand tracking gives the pinch point and gripper open/close.
    Objects are found by color (or one click per clip), with a marker homography per frame.
 3. **Retargeting** (`human/retarget.py`): pinch point → gripper target at 10 Hz, contact-anchored height, approach
@@ -194,9 +164,14 @@ all numbers in [`docs/results_tables.md`](docs/results_tables.md).
 4. **Sim replay**: the retargeted trajectory runs in MuJoCo and is re-rendered from the policy's cameras. Session 5:
    100% of clips extracted, 92% of replays succeed; failed replays are kept.
 
-![phone recording vs sim replay](docs/figures/phone_side_by_side.jpg)
-*Phone recording with hand tracking (left), sim replay from the phone's viewpoint (middle) and from the front
-(right); 9-task session.*
+| phone frame | the sim scene it produced (same instant, phone viewpoint) |
+|---|---|
+| ![phone frame](docs/media/phone_frame.jpg) | ![sim frame](docs/media/sim_frame.jpg) |
+
+Phone-derived sim demos vs clean sim-expert demos (nearest cube start among the expert demos), front camera:
+
+![phone-derived vs clean sim demo, a](docs/media/phone_replay_vs_clean_a.gif)
+![phone-derived vs clean sim demo, b](docs/media/phone_replay_vs_clean_b.gif)
 
 ## Limitations
 

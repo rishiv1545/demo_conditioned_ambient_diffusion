@@ -206,27 +206,25 @@ def eval_point(run, step, tag="_br_zn"):
 
 
 def single_task(out_fig="docs/figures"):
-    """Success vs number of demos on the single-object task: phone replays vs clean sim demos, midpoint and end."""
-    PHONE, SIM = AMB, CLEAN
-    series = [("phone demos", PHONE, [(15, "P5_naive_15", 5000, 10000), (30, "P5_naive_30", 5000, 10000),
-                                      (60, "P5_naive_60", 7500, 15000), (100, "P5_naive_all", 7500, 15000)]),
-              ("clean sim demos", SIM, [(15, "S1b_sim_15", 5000, 10000), (30, "S1b_sim_30", 5000, 10000)])]
+    """Success vs number of phone demos on the single-object task (end of training), with 15 clean sim demos as a
+    reference point."""
+    phone = [(15, "P5_naive_15", 10000), (30, "P5_naive_30", 10000), (60, "P5_naive_60", 15000),
+             (100, "P5_naive_all", 15000)]
     fig, ax = plt.subplots(figsize=(5.6, 3.6), facecolor=SURF)
     style(ax)
-    rows = ["| demos | data | midpoint % | end % (95% CI) |", "|---|---|---|---|"]
-    for label, c, pts in series:
-        xs, mid, end, lo, hi = [], [], [], [], []
-        for n, run, sm, se in pts:
-            m, e = eval_point(run, sm), eval_point(run, se)
-            if e is None:
-                continue
-            xs.append(n); mid.append(m[0] if m else np.nan); end.append(e[0]); lo.append(e[1]); hi.append(e[2])
-            rows.append(f"| {n} | {label} | {m[0]:.0f} | {e[0]:.0f} ({e[1]:.0f}-{e[2]:.0f}) |")
-        xs, end = np.array(xs), np.array(end)
-        ax.errorbar(xs, end, yerr=[end - np.array(lo), np.array(hi) - end], color=c, lw=2, marker="o", ms=6,
-                    markeredgecolor=SURF, markeredgewidth=1.5, capsize=3, elinewidth=1, label=f"{label}, end of training (95% CI)")
-        ax.plot(xs * 1.06, mid, ls="none", marker="o", ms=5.5, markerfacecolor=SURF, markeredgecolor=c,
-                markeredgewidth=1.5, label=f"{label}, midpoint checkpoint")
+    rows = ["| demos | data | end of training % |", "|---|---|---|"]
+    xs, ys = [], []
+    for n, run, st in phone:
+        e = eval_point(run, st)
+        if e:
+            xs.append(n); ys.append(e[0])
+            rows.append(f"| {n} | phone demos | {e[0]:.1f} |")
+    ax.plot(xs, ys, color=AMB, lw=2, marker="o", ms=6, markeredgecolor=SURF, markeredgewidth=1.5, label="phone demos")
+    ref = eval_point("S1b_sim_15", 10000)
+    if ref:
+        rows.append(f"| 15 | clean sim demos | {ref[0]:.1f} |")
+        ax.plot([15], [ref[0]], ls="none", marker="D", ms=7, color=CLEAN, markeredgecolor=SURF, markeredgewidth=1.5,
+                label="15 clean sim demos (reference)")
     ax.set_xscale("log")
     ax.set_xlim(12, 125)
     ax.set_xticks([15, 30, 60, 100])
@@ -234,7 +232,7 @@ def single_task(out_fig="docs/figures"):
     ax.minorticks_off()
     ax.set_ylim(0, 105)
     ax.set_xlabel("demos (single object, one task)", fontsize=8, color=INK2)
-    ax.set_ylabel("success % (20 episodes; 40 for phone 30 at the end)", fontsize=8, color=INK2)
+    ax.set_ylabel("success %, end of training", fontsize=8, color=INK2)
     ax.set_title("Phone-only post-training of SmolVLA, single-object task", fontsize=10, color=INK, loc="left")
     ax.legend(fontsize=7, frameon=False, loc="lower right", labelcolor=INK)
     fig.tight_layout()
@@ -249,18 +247,14 @@ STEPS_15 = [2500, 5000, 7500, 10000]
 
 
 def methods(out_fig="docs/figures"):
-    """Success vs training step for each method at 15 phone demos (fixed steps, standard eval seeds) + a table."""
-    fig, ax = plt.subplots(figsize=(5.6, 3.6), facecolor=SURF)
-    style(ax)
+    """Bar chart: each method's final checkpoint at 15 phone demos on the held-out paired evaluation (fresh layouts,
+    _br_zn_fresh); and the markdown table of the fixed-step curves on the standard layouts."""
     rows = ["| method | 2.5k | 5k | 7.5k | 10k (40 ep., 95% CI) | validation, 10k |", "|---|---|---|---|---|---|"]
     for label, run, c in METHODS_15:
         pts = {st: eval_point(run, st) for st in STEPS_15}
         if not any(pts.values()):
             rows.append(f"| {label} | – | – | – | pending | – |")
             continue
-        xs = [st for st in STEPS_15 if pts[st]]
-        ax.plot([x / 1000 for x in xs], [pts[x][0] for x in xs], color=c, lw=2, marker="o", ms=5,
-                markeredgecolor=SURF, markeredgewidth=1.5, label=label)
         val = eval_point(run, 10000, "_br_zn_val")
         cell = lambda st: f"{pts[st][0]:.0f}" if pts[st] else "–"
         end = pts[10000]
@@ -275,12 +269,29 @@ def methods(out_fig="docs/figures"):
     sp = eval_point("P5_SI_15", 13000)
     rows.append(f"| self-improvement (1 round on {dict(P5_naive_15r='naive', P5_amb_15='ambient', P5_qual_15='quality-tagged').get(si['best'], si['best']) if si else '?'}) | | | | "
                 + (f"{sp[0]:.1f} ({sp[1]:.0f}–{sp[2]:.0f}) at 13k" if sp else "pending") + " | |")
+    import glob
+    short = {"naive": "naive", "ambient": "ambient", "quality-tagged": "quality-\ntagged",
+             "velocity-normalized (naive)": "velocity-\nnormalized"}
+    bars = [(short[l], run, 10000) for l, run, _ in METHODS_15] + [("self-\nimprovement\n(13k)", "P5_SI_15", 13000)]
+    vals = []
+    for l, r, st in bars:
+        fs = sorted(glob.glob(f"{COLAB}/{r}/eval_step{st:06d}_k*_br_zn_fresh/summary.json"),
+                    key=lambda f: int(f.split("_k")[-1].split("_")[0]))
+        if fs:
+            sm = json.load(open(fs[-1]))
+            vals.append((l, 100 * sm["heldout"]["success"], sm["k"]))
+    fig, ax = plt.subplots(figsize=(5.6, 3.6), facecolor=SURF)
+    style(ax)
+    x = np.arange(len(vals))
+    ax.bar(x, [v for _, v, _ in vals], width=0.6, color=AMB)
+    for xi, (_, v, k) in zip(x, vals):
+        ax.text(xi, v + 1.5, f"{v:.1f}", ha="center", va="bottom", fontsize=8, color=INK)
+    ax.set_xticks(x)
+    ax.set_xticklabels([l for l, _, _ in vals], fontsize=7.5)
     ax.set_ylim(0, 105)
-    ax.set_xticks([2.5, 5, 7.5, 10])
-    ax.set_xlabel("training step (thousands; cosine LR over 10k)", fontsize=8, color=INK2)
-    ax.set_ylabel("success % (20 episodes; 40 at 10k)", fontsize=8, color=INK2)
-    ax.set_title("15 phone demos: success during training", fontsize=10, color=INK, loc="left")
-    ax.legend(fontsize=7, frameon=False, loc="lower left", labelcolor=INK)
+    ks = sorted({k for _, _, k in vals})
+    ax.set_ylabel(f"success % (held-out layouts, {' or '.join(map(str, ks))} episodes)", fontsize=8, color=INK2)
+    ax.set_title("15 phone demos: final checkpoint (10k steps) by method", fontsize=10, color=INK, loc="left")
     fig.tight_layout()
     fig.savefig(os.path.join(out_fig, "methods_15.png"), dpi=160, facecolor=SURF)
     print("\n".join(rows))
