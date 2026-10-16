@@ -1,4 +1,4 @@
-"""Evaluate a SmolVLA checkpoint on all 9 tasks (seen vs held-out), same protocol as policy/evaluate.py:
+"""Evaluate a SmolVLA checkpoint on all 9 tasks (seen vs held-out):
 fixed eval seeds, success = env.success() held for 5 consecutive steps, else failure at 200 steps.
 
 Episodes run in batches of environments stepping in lockstep, with one batched policy call per re-plan.
@@ -20,8 +20,7 @@ from vla.common import (build_policy, image_spec, list_checkpoints, load_run_con
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from policy.data import save_episode  # noqa: E402
-from policy.evaluate import EVAL_SEED_BASE, wilson  # noqa: E402
+from sim.episodes import EVAL_SEED_BASE, save_episode, wilson  # noqa: E402
 from sim.env import (ALL_TASKS, CUBES, DEFAULT_SPLIT, ZONES, PickPlaceEnv, env_cfg_dict, env_config,  # noqa: E402
                      instruction, parse_task, resolve_heldout, task_index, task_name)
 
@@ -145,7 +144,7 @@ def main():
                    help="layout seeds seed_base + task * 10000 + k (self-improvement rollouts: fresh layouts, not the "
                         "eval seeds)")
     p.add_argument("--save_episodes", default=None,
-                   help="dir: save every rollout as an episode .npz (successful ones are clean data, policy/data.py)")
+                   help="dir: save every rollout as an episode .npz (successful ones are clean data, sim/episodes.py)")
     p.add_argument("--quality", type=float, default=1.0, help="quality tag at inference (runs with --quality_tag 1)")
     a = p.parse_args()
     dev = pick_device(a.device)

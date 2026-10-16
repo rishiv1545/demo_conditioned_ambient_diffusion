@@ -1,7 +1,7 @@
 """Replay a retargeted human trajectory open-loop in sim and record it in the shared episode format."""
 import numpy as np
 
-from policy.data import save_episode
+from sim.episodes import save_episode
 
 HOLD_STEPS = 5  # extra steps holding the last action, as in the expert data
 

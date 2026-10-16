@@ -23,7 +23,7 @@ from vla.common import (build_policy, image_spec, list_checkpoints, load_run_con
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from policy.evaluate import EVAL_SEED_BASE  # noqa: E402
+from sim.episodes import EVAL_SEED_BASE  # noqa: E402
 from sim.env import CUBES, PickPlaceEnv, env_config, instruction  # noqa: E402
 
 

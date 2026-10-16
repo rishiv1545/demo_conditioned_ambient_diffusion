@@ -26,7 +26,7 @@ import cv2  # noqa: E402
 import imageio.v2 as imageio  # noqa: E402
 import numpy as np  # noqa: E402
 
-from policy.data import layout_from_array  # noqa: E402
+from sim.episodes import layout_from_array  # noqa: E402
 from sim.env import EnvConfig, PickPlaceEnv  # noqa: E402
 
 SESSION = "data/raw_phone/5"

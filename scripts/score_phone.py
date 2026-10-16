@@ -1,6 +1,7 @@
 """Quality score per phone replay (one task), for clean/noisy splits, per-episode ambient t_min and a quality tag.
 
-    python scripts/score_phone.py --datasets phone_v2 phone_v3_blue --task blue-orange --out quality/phone_bo.json
+    python scripts/score_phone.py --datasets phone_s5 --task blue-red --sim_dir data/sim_v3s2 --first 15 \
+        --out quality/phone_s5_first15.json
 
 Per episode (from the sim replay stored in each episode's .npz: obs = ee, gripper width, 3 cubes, 3 zones at 10 Hz;
 action = ee target + gripper command, 1 = closed):

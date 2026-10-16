@@ -10,7 +10,7 @@ from multiprocessing import get_context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from policy.data import save_episode  # noqa: E402
+from sim.episodes import save_episode  # noqa: E402
 from sim.env import (ALL_TASKS, DEFAULT_SPLIT, SINGLE_TASK, EnvConfig, PickPlaceEnv, env_cfg_dict, parse_task,  # noqa: E402
                      resolve_heldout, task_index, task_name)
 from sim.expert import run_expert_episode  # noqa: E402

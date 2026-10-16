@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np  # noqa: E402
 
-from policy.data import layout_from_array, load_episodes  # noqa: E402
+from sim.episodes import layout_from_array, load_episodes  # noqa: E402
 from sim.env import (ALL_TASKS, DEFAULT_SPLIT, IMAGE_CAMERAS, IMAGE_SIZE, STATE_DIM, PickPlaceEnv,  # noqa: E402
                      env_cfg_dict, env_config, instruction, resolve_heldout, task_name)
 
@@ -44,7 +44,7 @@ def replay_render(env, ep, size=IMAGE_SIZE):
     obs = env.reset(task=ep["task"], layout=layout_from_array(ep["layout"]), ee_start=ee_start)
     imgs = {c: [] for c in IMAGE_CAMERAS}
     states, err = [], 0.0
-    # recovery demos (scripts/gen_recovery_data.py): replay the executed (perturbed) actions; the labels written to
+    # recovery demos (exec_action present): replay the executed (perturbed) actions; the labels written to
     # the dataset stay ep["action"] (the expert's nominal, corrective targets)
     for t, a in enumerate(ep.get("exec_action", ep["action"])):
         err = max(err, float(np.abs(obs - ep["obs"][t]).max()))

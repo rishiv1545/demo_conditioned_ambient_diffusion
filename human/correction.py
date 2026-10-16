@@ -1,6 +1,6 @@
 """"Miss and correct" phone clips: find the pause before the correction.
 
-Protocol (RECORDING.md, section 5b): start the reach, deliberately stop 3-5 cm beside the object (hovering, not
+Protocol: start the reach, deliberately stop 3-5 cm beside the object (hovering, not
 touching), pause ~0.5 s, then move onto the object, grasp and finish the task. The policy should learn only the
 correction: actions before the end of the pause get no loss (observations are kept).
 

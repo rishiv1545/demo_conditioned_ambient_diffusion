@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np  # noqa: E402
 
-from policy.data import _read, layout_from_array  # noqa: E402
+from sim.episodes import _read, layout_from_array  # noqa: E402
 from sim.env import task_name  # noqa: E402
 
 

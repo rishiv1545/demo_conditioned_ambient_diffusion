@@ -1,7 +1,7 @@
 """Single-object scene (env v3s): only the blue cube and the red zone; the multi-object scene is unchanged."""
 import numpy as np
 
-from policy.data import layout_from_array, save_episode
+from sim.episodes import layout_from_array, save_episode
 from sim.env import (SINGLE_TASK, EnvConfig, OBS_DIM, PickPlaceEnv, env_cfg_dict, env_config, instruction,
                      task_index)
 from sim.expert import run_expert_episode

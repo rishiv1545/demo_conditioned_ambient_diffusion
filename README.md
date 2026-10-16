@@ -1,28 +1,26 @@
-# Phone demos as post-training data for a VLA
+# THIS IS HUMAN WRITTEN! Using Phone Demos to post-train smol vla
 
-*Running log: `NOTES.md`. Phone recording protocol: `RECORDING.md`.*
+I wanted to mess around with post-training, specifically I can imagine a scenario where you may ask a customer to collect some data doing an action so that you can post-train a model to do that task for them. This data is probably not going to be perfect quality/ equivalent to what can be collected in the lab, but you still want to make the most of it, take the phone recorded demos translated into simulation trajectories as the equivalent. I will try to be as sample efficient as possible in post-training SmolVLA (`lerobot/smolvla_base`, 450M).
 
-Robot demonstrations are expensive. A phone video of a person doing the task is cheap, but noisy. Here, phone clips of a
-real tabletop task are retargeted into a MuJoCo sim (Franka Panda), replayed there, and used to post-train
-SmolVLA (`lerobot/smolvla_base`, 450M).
+## The task: pick n place
 
-## Headline: phone-only post-training reaches 95–100% on a single-object task
+I played around with having a much less controlled setup, but the amount of data needed(I ran some experiments with perfect sim generated data to see how much was needed) neared 600 episodes so I went with a much more controlled setup so that I could focus on more interesting stuff(one cube, one target zone, a fixed top-down phone, see [Limitations](#limitations)).
 
-In this controlled setup (one cube, one target zone, a fixed top-down phone, see [Limitations](#limitations)),
-**SmolVLA post-trained only on 100 retargeted phone demos succeeds in 95% of sim episodes at the end of training and
-100% at the midpoint checkpoint** (20 episodes each, zero-noise sampling). No robot or sim-expert demos are used.
+TLDR:
+**SmolVLA post-trained only on 100 retargeted phone demos has a 95% eval success in simulation so i challenged myself to achieve this with better sample efficiency** (20 episodes each). No robot or sim-expert demos are used.
 
 ![phone clip and its sim replay](docs/media/phone_vs_sim.gif)
 *Left: one of the 100 phone clips. Right: the sim demo produced from it, rendered from the phone's viewpoint and
-aligned in time (the phone frame holds during the dwells the retargeting inserts at gripper switches).*
+aligned in time.*
 
 ![policy trained on 100 phone demos](docs/media/rollout.gif)
-*The policy trained on all 100 phone demos (final checkpoint, zero-noise sampling) on an unseen evaluation layout
-in sim, front camera, real time.*
+*The policy trained on all 100 phone demos on an unseen eval layout*
 
 ### Success vs number of demos
 
 ![success vs number of demos](docs/figures/single_task_demos.png)
+
+Intersetingly I compared the sample efficiency of training on phone demos to training on expert simulation demos that can be deterministically generated. The expert sim demos are much more sample efficient, and the task is saturated with ~15 training demos whereas it takes near 100 phone demos to reach the same accuracy. Thus, the goal from here on became to try and get the accuracy training on 15 phone-demos to be as comparable as possible to training on the expert sim demos
 
 | demos | data | midpoint checkpoint % | end of training % (95% CI) |
 |---|---|---|---|
@@ -36,23 +34,20 @@ in sim, front camera, real time.*
 - Task: "put the blue cube in the red zone". The cube starts anywhere in a 7.7 × 7.7 cm box; the zone is fixed.
   The sim layout distribution matches the real recording layout.
 - Phone runs use the first *N* of 100 clips in recording order (nested sets), including the 8% whose sim replay
-  failed. Training: from `smolvla_base`, language layers unfrozen, cosine LR over 10k steps (*N* ≤ 30) or 15k steps.
+  failed. Training: from `smolvla_base`, language layers unfrozen, cosine LR over 10k steps (*N* ≤ 30) or 15k steps (*N* > 30) to avoid overfitting.
   Midpoint checkpoint = 5k or 7.5k steps.
-- About 100 phone demos reach what 15 clean sim-expert demos reach. Phone results are not monotone in *N* at
-  20 episodes per point. The intervals are wide (±15–20 points) and each cell is a single training seed.
 
 ## Method comparison at 15 phone demos
 
-At 15 demos naive training ends mid-range (55%). Methods compared on the same 15 clips:
+At 15 demos naive post-training ends mid-range (55%). I compared several methods to try and boost performance training on the same 15 clips:
 
 - **naive**: flow-matching loss on every clip.
-- **ambient**: the 5 best clips by quality score (top 30% of the 15) are clean; the other 10 supervise only the
-  high-noise part of the flow (per-clip t_min 0.5–0.9 by score rank).
-- **quality-tagged**: each clip's quality score is appended to the state; at test time the policy is asked for high quality.
-- **velocity-normalized (VN)**: naive on clips re-timed to a common speed profile (after Tutor Intelligence DF1,
+- **ambient diffusion**: the 5 best clips by quality score (top 30% of the 15) are clean; the other 10 supervise only the high-noise part of the flow (per-clip t_min 0.5–0.9 by score rank). The reasoning is that at the beggining of the diffusion denoising process you only need high level reasoning, so a more noisy clip that has the right general idea but say is too jerky/fast/something else can still be used for supervising this part, while towards the end of diffusion you want clean fine-grained demos from supervision of the finegrained/detailed parts of the task.
+- **quality-tagged**: at train time assign each clip a quality score that is appended to the state; at test time the policy is queried asking for high quality. Idea is that somewhere in latent space the model begins to associate certain characterstics with bad vs. good performance and then this can then be used at inference. cool idea, credit to pi for this one.
+- **velocity-normalized (VN)**: Essentially a hunch that a massive gap between phone demos and sim expert demos is speed(my demos are varying speed while sim is always a fixed speed). I learned about this technique from tutor intelligence's Data Factory 1(DF1) technical report, but its essentially normalizing the speed of all the demos. Naive on clips re-timed to a common speed profile (after Tutor Intelligence DF1,
   Sec. 4.2). Cross-episode cruise-speed CV drops from 0.19 to 0.14; sim replay success rises from 92% to 94%.
-- **self-improvement**: one round on the best of naive / ambient / quality. That run's policy collects 100 sim
-  rollouts, the successful ones are added as clean data, and it trains 3k more steps.
+- **self-improvement**: A little experiment for funsies. one round on the best of naive / ambient / quality. That run's policy collects 100 sim
+  rollouts, the successful ones are added as clean data, and it trains 3k more steps. In hindsight only indistribution would succeed so it wouldnt add much to the model, but was worth a try :).
 
 What the methods see in the data:
 
@@ -63,6 +58,8 @@ What the methods see in the data:
 ![final checkpoint by method at 15 phone demos](docs/figures/methods_15.png)
 *Final checkpoint of each method on the held-out paired evaluation (fresh layouts; 200 episodes for naive,
 ambient and quality-tagged, 100 for velocity-normalized and self-improvement).*
+
+was ultimately able to get accuracy up to 86.5%, which is decent. I reckon maybe by combining several of these(ex. velocity normalization w/ ambient diffusion for example) could maybe climb up a bit more. Also a method such as quality tagging is probably much more influential at mid/pre-training as its probably impossible for the model to create a good latent represenetation of good vs bad demos w/ only 15 labeled clips and 10k steps. For diffusion it capitalizes on having a lot of bad and good data, so could probably extract more out of it at larger data scales.
 
 <!-- METHODS TABLE: python scripts/make_figures.py --methods -->
 | method | 2.5k | 5k | 7.5k | 10k (40 ep., 95% CI) | validation, 10k |
@@ -75,84 +72,54 @@ ambient and quality-tagged, 100 for velocity-normalized and self-improvement).*
 | self-improvement (1 round on ambient) | | | | 67.5 (52–80) at 13k | |
 <!-- /METHODS TABLE -->
 
-- **Naive training peaks early and then declines** (95% at 2.5k → 55% at 10k). The original run and a rerun with
-  the same seed agree, and the decline also shows on the separate validation layouts (95% → 67.5%).
-- **Ambient does not decline** and ends at 92.5%. That matches the best naive checkpoint without having to pick it,
-  and is above the naive 5k baseline (85%) by about 8 points (within the intervals; held-out: 86.5% vs 79%,
-  p = 0.049 before correction).
-- **Quality tags also hold up** (87.5% at 10k, no late decline), 5 points below ambient on both seed sets (within
-  the intervals; held-out p = 0.30).
-- **Velocity normalization also largely avoids naive's decline** (85% at 5k → 77.5% at 10k, vs naive's 85% → 55%).
-  On the held-out layouts it matches ambient (below).
-- **At 30 demos ambient gives nothing.** Naive@30 does not show the late decline (45% at 5k → 82.5% at 10k), and
-  ambient@30 ends at 80% (80 / 60 / 70 / 80 at 2.5k–10k): on the same 40 episodes 2 won, 3 lost (held-out: 83% each). The ambient gain at
-  15 demos is a gain where naive breaks down, not a general one.
-- **Self-improvement made the best run worse.** Ambient won the validation selection (85 vs 80 vs 67.5). Its
-  rollouts succeeded 93/100 (sampling noise on), and 3k more steps on those plus the 15 clips dropped it from 92.5% to
-  67.5% on the same 40 episodes (11 lost, 1 gained; exact McNemar p ≈ 0.006). The grasp point moved +0.8 cm in x,
-  like naive's late drift. Not diagnosed further: the 93 rollouts outweigh the 15 clips and are treated as clean, and
-  the LR restarts at 5e-5.
-- **The late failures are grasp drift, not copying.** On the same 20 episodes, naive's grasp point moves +0.6 cm in
-  x from 5k to 10k (in 15 of 20), away from the training clips' average. The 10k misses are no closer to their
-  nearest training clip's grasp than to the average one (`scripts/grasp_vs_train.py`).
+interstingly training naively sees a large decline after 2.5k steps, likely due to overfitting, and it seems more like all the approaches help to avoid overfitting rather than actually boosting value of the data :(. But a win's a win.
 
-Protocol: success at fixed steps (20 episodes; 40 at 10k) on the standard evaluation layouts. The one selection
-(which method gets self-improvement) uses separate validation layouts at 10k.
+## Future Work
+maybe broaden scope of the task so that data quality can be evaluated more directly rather than these methods just helping to avoid overfitting? Also, I wanted to try doing some demo-conditioned work as you may guess from the repo name. Something like icl where the model can be prompted w/ a video and condition the output on that. Unfortunately I am time constrained, compute constrained, and data constrained when it comes to doing that :(. Will probably be adding on to this repo in the future though, I think its an interesting premise to try and extract as much value as possible out of a fixed amount of data in the post-training process. Also, RL-finetuning was an option here but I opted away from it specifically because I wanted to mirror the "quick finetune on customer collected noisy umi-data" as closely as possible with what I had(in this case you probably can't whip up a physically realistic simulation for each customer data collection for rl finetuning, although it could be an intersting premise similar to how people are automating rl env production for llm finetuning?). Anyways, thanks for reading if you made it this far. Below is reproduction stuff that I made claude add.
 
-**Each method is a single training seed.** Run-to-run variation is not measured, so the conclusions rest on two
-things: a paired evaluation on held-out layouts (below), and the consistency of the curves across checkpoints and
-seed sets.
+## Clip Scoring/Quality
 
-### Held-out paired evaluation
+Both ambient and quality tagging use one hand-designed score per clip (`scripts/score_phone.py`). It is computed
+from the clip's sim replay and compared with clean sim-expert demos of the same task.
 
-Existing checkpoints only, no retraining. Fresh layouts (never used for evaluation, selection or data), the same
-layouts for every checkpoint, zero-noise sampling: 200 episodes for naive 5k / 10k, ambient 10k and quality 10k;
-100 for the rest. Wilson 95% intervals; exact McNemar tests on the shared episodes
-(`scripts/paired_eval.py`).
+**1. Six measurements per clip:**
 
-<!-- FRESH TABLE: python scripts/paired_eval.py -->
-| checkpoint | episodes | success % | Wilson 95% CI |
-|---|---|---|---|
-| naive 5k | 200 | 79.0 | 73–84 |
-| naive 7.5k | 100 | 66.0 | 56–75 |
-| naive 10k | 200 | 64.5 | 58–71 |
-| ambient 7.5k | 100 | 87.0 | 79–92 |
-| ambient 10k | 200 | 86.5 | 81–91 |
-| quality 10k | 200 | 82.5 | 77–87 |
-| VN (naive) 10k | 100 | 83.0 | 74–89 |
-| self-improvement 13k | 100 | 71.0 | 61–79 |
-| naive@30 10k | 100 | 83.0 | 74–89 |
-| ambient@30 10k | 100 | 83.0 | 74–89 |
+| measurement | what it is | reference |
+|---|---|---|
+| grasp error | xy distance between gripper and cube when the gripper first closes | fixed 1.0 cm |
+| dwell error | how far the pause before closing differs from the expert's | expert median, 0.2 s allowed |
+| lift time | from closing to the cube rising 1 cm | expert 90th percentile |
+| jerk | roughness of the path | expert 90th percentile |
+| speed | 95th-percentile speed | expert 90th percentile |
+| other cubes moved | displacement of non-target cubes | fixed 1.0 cm (always 0 in the single-object scene) |
 
-| comparison (A vs B) | shared episodes | A % | B % | A only | B only | exact McNemar p |
-|---|---|---|---|---|---|---|
-| ambient 10k vs naive 10k | 200 | 86.5 | 64.5 | 60 | 16 | < 1e-4 |
-| ambient 10k vs naive 5k | 200 | 86.5 | 79.0 | 33 | 18 | 0.049 |
-| ambient 10k vs quality 10k | 200 | 86.5 | 82.5 | 27 | 19 | 0.3 |
-| naive 5k vs naive 10k | 200 | 79.0 | 64.5 | 46 | 17 | 0.00034 |
-| self-improvement 13k vs ambient 10k | 100 | 71.0 | 84.0 | 10 | 23 | 0.035 |
-| ambient@30 10k vs naive@30 10k | 100 | 83.0 | 83.0 | 6 | 6 | 1 |
-| VN (naive) 10k vs naive 10k | 100 | 83.0 | 64.0 | 27 | 8 | 0.0019 |
-| VN (naive) 10k vs ambient 10k | 100 | 83.0 | 84.0 | 11 | 12 | 1 |
+Dwell, jerk and speed come from the hand track before retargeting inserts its fixed 0.5 s pauses. Each measurement x
+becomes a sub-score exp(−max(0, x/ref − 1)): 1 at or better than the reference, decaying when worse.
 
-- **Naive declines late; ambient doesn't.** On fresh layouts naive falls from 79.0% (5k) to 64.5% (10k)
-  (46 vs 17 discordant, p = 0.0003). Ambient at 10k is 86.5% vs naive's 64.5% (60 vs 16, p = 4e-7). Ambient at
-  7.5k and 10k agree (87% and 84% on the same 100 episodes).
-- **Ambient at 10k vs the best naive checkpoint (5k)**: 86.5% vs 79.0% (33 vs 18, p = 0.049). Suggestive, not
-  significant after a Holm correction over the four planned comparisons (adjusted p = 0.098).
-- **Ambient, quality-tagged and VN end level.** Ambient vs quality 86.5% vs 82.5% (27 vs 19, p = 0.30); VN 83% vs
-  ambient 84% on the same 100 episodes (11 vs 12, p = 1). VN beats naive at 10k (27 vs 8, p = 0.002). VN's 77.5% on
-  the 40 standard layouts was at the low end of its interval. All three avoid the late decline; none is shown to be
-  better than the others.
-- **Self-improvement hurts on held-out layouts too**: 71% vs its starting checkpoint's 84% (10 vs 23, p = 0.035).
-- **At 30 demos ambient and naive are identical**: 83% each (6 vs 6).
-- The held-out numbers for ambient and quality are 3–6 points below the 40-episode standard-layout ones, within
-  their intervals. The extra comparisons beyond the four planned ones are not corrected for multiple testing.
-<!-- /FRESH TABLE -->
+**2. Score** = 0.4 × (replay succeeded) + 0.6 × (mean of the six sub-scores), in [0, 1].
+
+**3. Quality tag** = 2 × score − 1, in [−1, 1]. It is appended to the state during training; at test time the
+policy is given +1.
+
+**4. Clean vs noisy (ambient)** is decided within the clips actually trained on (`--first 15`). The top 30% by score
+among successful replays are clean (5 of 15, t_min 0). The rest are noisy, with t_min spread by score rank from
+0.5 (best noisy clip) to 0.9 (worst).
+
+**What separates the clips at 15** (`quality/phone_s5_first15.csv`):
+
+- The one failed replay (clip 005) scores 0.31 (tag −0.39); the success term alone puts it last.
+- The 14 successful replays score 0.69–0.79, and grasp error does nearly all of the ranking: 0.5–1.3 cm for the
+  5 clean clips, 1.3–2.5 cm for the noisy ones. Dwell error (0.3–0.4 s) and lift time barely vary.
+- So "noisy" here mostly means "grasped further off-centre", plus the failed replay.
+
+**Caveats:** the weights (0.4 / 0.6), the 30% clean fraction, the 0.5–0.9 t_min range and the references were set
+by hand, and the score has not been checked against any independent measure of demo quality. At 15 clips the score
+gaps are small: clip 012 (clean, 1.33 cm grasp error) and clip 002 (noisy, 1.31 cm) fall on opposite sides of the
+cut.
 
 ## Phone pipeline
 
-1. **Recording** (`RECORDING.md`): phone 43 cm above the table looking down (0.5× lens); four ArUco markers give
+1. **Recording**: phone 43 cm above the table looking down (0.5× lens); four ArUco markers give
    metric table coordinates in every frame. Session 5: 100 clips of the single-object task, a blue lid moved
    onto a red patch (the sim's blue cube and red zone); the red patch is fixed and the lid starts in a 7.7 × 7.7 cm
    box.
@@ -208,8 +175,7 @@ python scripts/vn_stats.py stats --src data/human/5 --out quality/vn_s5.json   #
 python colab/dcad.py up                   # VM + code at the local HEAD; then mount Drive: colab drivemount -s dcad
 python colab/dcad.py run P5_naive_15 P5_amb_15 --stages data,cache,train,eval   # the job stops its own VM
 python colab/dcad.py wait                 # follow; results: python colab/dcad.py fetch <runs>
-python scripts/make_figures.py --single   # demo-count figure
+python scripts/make_figures.py --single --methods   # README figures
+python scripts/make_media.py              # README videos and stills -> docs/media
 
-# small diffusion policy (Mac)
-python scripts/run_ambient_priority.py && python scripts/make_figures.py --results
 ```

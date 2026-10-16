@@ -23,7 +23,7 @@ from vla.common import (base_config, build_policy, image_spec, list_checkpoints,
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from policy.evaluate import EVAL_SEED_BASE  # noqa: E402
+from sim.episodes import EVAL_SEED_BASE  # noqa: E402
 from sim.env import ALL_TASKS, DEFAULT_SPLIT, PickPlaceEnv, env_config, resolve_heldout, task_name  # noqa: E402
 from sim.expert import ScriptedExpert  # noqa: E402
 from vla.eval_smolvla import to_batch  # noqa: E402

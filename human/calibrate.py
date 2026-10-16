@@ -20,8 +20,8 @@ def load_session(session_dir):
     bh = s.get("calib_box_height_cm")
     s["box_height"] = bh / 100.0 if bh is not None else None   # unknown -> calibration reports the estimate only
     corners = marker_table_xy(s["rect_cm"])  # near-left, near-right, far-right, far-left
-    # Which marker ID is taped at each corner (near-left, near-right, far-right, far-left). Default: as in
-    # RECORDING.md. Lets a rotated sticker layout be fixed in software instead of re-taping.
+    # Which marker ID is taped at each corner (near-left, near-right, far-right, far-left). Default: IDs 0-3 in
+    # that order. Lets a rotated sticker layout be fixed in software instead of re-taping.
     ids = s.get("corner_ids", [0, 1, 2, 3])
     if sorted(ids) != [0, 1, 2, 3]:
         raise ValueError(f"corner_ids must be a permutation of 0-3, got {ids}")

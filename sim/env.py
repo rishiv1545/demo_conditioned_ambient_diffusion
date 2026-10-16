@@ -25,7 +25,7 @@ SINGLE_TASK = (2, 3)  # "put the blue cube in the red zone" (EnvConfig.scene "si
 # Held-out task splits. "object" (default): the blue cube is never a target in sim demos (it is still in every
 # scene as a distractor), so phone demos are the only source for the blue tasks. "combo": a Latin square of
 # (cube, zone) pairs where every cube and zone still appears in some seen task. A policy with factored
-# conditioning composes these for free (100% held-out from sim alone; see NOTES.md), so it is kept only as an option.
+# conditioning composes these for free (100% held-out from sim alone), so it is kept only as an option.
 SPLITS = {
     "object": [(2, 0), (2, 1), (2, 2)],
     "combo": [(0, 0), (1, 1), (2, 2)],
